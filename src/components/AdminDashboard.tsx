@@ -20,9 +20,14 @@ import {
   Building,
   RefreshCw,
   TrendingUp,
-  Lock
+  Lock,
+  Edit,
+  Trash2,
+  UploadCloud,
+  Filter
 } from 'lucide-react';
 import { Book, BorrowedBook } from '../data/books';
+import { BookFormModal } from './BookFormModal';
 
 interface AdminDashboardProps {
   adminUser: { id: string; email: string };
@@ -45,7 +50,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'rentals' | 'orders' | 'inventory' | 'security'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [inventoryCategory, setInventoryCategory] = useState<string>('all');
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  // Book management modal state
+  const [isBookModalOpen, setIsBookModalOpen] = useState(false);
+  const [editingBook, setEditingBook] = useState<Book | null>(null);
 
   // Orders sample data
   const [orders, setOrders] = useState([
@@ -168,6 +179,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     onUpdateBooks(updated);
     showNotification(`ปรับยอดสต็อกหนังสือเรียบร้อยแล้ว`);
   };
+
+  const handleOpenAddBook = () => {
+    setEditingBook(null);
+    setIsBookModalOpen(true);
+  };
+
+  const handleOpenEditBook = (book: Book) => {
+    setEditingBook(book);
+    setIsBookModalOpen(true);
+  };
+
+  const handleSaveBook = (savedBook: Book, isNew: boolean) => {
+    if (isNew) {
+      onUpdateBooks([savedBook, ...books]);
+      showNotification(`อัปโหลดและเพิ่มหนังสือ "${savedBook.title}" สู่คลังหนังสือเรียบร้อยแล้ว`);
+      
+      const newLog = {
+        id: `LOG-${Date.now()}`,
+        time: 'เมื่อสักครู่',
+        event: `เจ้าหน้าที่ ${adminUser.id} อัปโหลดหนังสือใหม่เข้าสู่ระบบ: "${savedBook.title}" (ISBN: ${savedBook.isbn})`,
+        ip: '203.144.144.89 (AD-8842)',
+        status: 'ACTION'
+      };
+      setAuditLogs([newLog, ...auditLogs]);
+    } else {
+      const updated = books.map(b => b.id === savedBook.id ? savedBook : b);
+      onUpdateBooks(updated);
+      showNotification(`บันทึกการแก้ไขหนังสือ "${savedBook.title}" สำเร็จแล้ว`);
+
+      const newLog = {
+        id: `LOG-${Date.now()}`,
+        time: 'เมื่อสักครู่',
+        event: `เจ้าหน้าที่ ${adminUser.id} แก้ไขข้อมูลหนังสือ: "${savedBook.title}"`,
+        ip: '203.144.144.89 (AD-8842)',
+        status: 'ACTION'
+      };
+      setAuditLogs([newLog, ...auditLogs]);
+    }
+  };
+
+  const handleDeleteBook = (bookId: string) => {
+    const targetBook = books.find(b => b.id === bookId);
+    const updated = books.filter(b => b.id !== bookId);
+    onUpdateBooks(updated);
+    showNotification(`ลบหนังสือ "${targetBook?.title || bookId}" ออกจากระบบแล้ว`);
+
+    const newLog = {
+      id: `LOG-${Date.now()}`,
+      time: 'เมื่อสักครู่',
+      event: `เจ้าหน้าที่ ${adminUser.id} ทำการลบหนังสือออกจากคลัง: "${targetBook?.title || bookId}"`,
+      ip: '203.144.144.89 (AD-8842)',
+      status: 'ACTION'
+    };
+    setAuditLogs([newLog, ...auditLogs]);
+  };
+
+  // Filter books for admin inventory
+  const filteredInventoryBooks = books.filter(b => {
+    const matchesCategory = inventoryCategory === 'all' || b.category === inventoryCategory;
+    const matchesSearch = 
+      b.title.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+      b.author.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+      b.isbn.toLowerCase().includes(inventorySearch.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
 
   return (
     <div className="min-h-screen bg-[#fff8f6] text-[#211a18] flex flex-col">
@@ -404,6 +480,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 ))}
               </div>
             </div>
+
+            {/* Quick Book Upload & Management Banner */}
+            <div className="bg-white p-5 rounded border border-[#dac1b8] shadow-editorial-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-10 h-10 rounded bg-[#914724] text-white flex items-center justify-center shrink-0">
+                  <UploadCloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-editorial-serif font-semibold text-sm text-[#211a18]">
+                    ระบบจัดการและอัปโหลดหนังสือใหม่สู่เว็บไซต์
+                  </h4>
+                  <p className="text-xs text-[#54433c] mt-0.5">
+                    ปัจจุบันมีหนังสือเผยแพร่อยู่ในระบบทั้งหมด {books.length} เล่ม สามารถอัปโหลดหนังสือใหม่พร้อมรูปภาพ หรือแก้ไขข้อมูลเล่มเดิมได้ทันที
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('inventory')}
+                  className="px-3 py-2 bg-white hover:bg-[#f9ebe7] border border-[#dac1b8] text-xs font-medium text-[#211a18] rounded transition-colors"
+                >
+                  ดูคลังหนังสือทั้งหมด
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenAddBook}
+                  className="px-3.5 py-2 bg-[#914724] hover:bg-[#793a1c] text-white text-xs font-semibold rounded transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ อัปโหลดหนังสือใหม่</span>
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -576,60 +687,179 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Tab 4: Inventory & Stock */}
         {activeTab === 'inventory' && (
-          <div className="bg-white rounded border border-[#dac1b8] overflow-hidden">
-            <div className="p-4 border-b border-[#dac1b8] bg-[#f9ebe7] flex items-center justify-between">
+          <div className="bg-white rounded border border-[#dac1b8] overflow-hidden space-y-0">
+            {/* Header with Title and Add Button */}
+            <div className="p-4 sm:p-5 border-b border-[#dac1b8] bg-[#f9ebe7] flex flex-wrap items-center justify-between gap-4">
               <div>
-                <h3 className="font-semibold text-sm font-editorial-serif text-[#211a18]">
-                  สต็อกหนังสือในคลัง (สาขาอารีย์ + สต็อกหมุนเวียนให้ยืม)
-                </h3>
-                <p className="text-xs text-[#54433c]">
-                  อัปเดตสถานะหนังสือพร้อมจำหน่ายและจำนวนเล่มที่เปิดให้อ่านยืม
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-[#914724]" />
+                  <h3 className="font-semibold text-base font-editorial-serif text-[#211a18]">
+                    จัดการคลังหนังสือ & สต็อกสาขาอารีย์
+                  </h3>
+                  <span className="text-xs font-mono bg-white px-2 py-0.5 rounded border border-[#dac1b8] text-[#7c563f]">
+                    {books.length} เล่มในระบบ
+                  </span>
+                </div>
+                <p className="text-xs text-[#54433c] mt-0.5">
+                  แอดมินสามารถแก้ไขเนื้อหา ราคา อัตราค่ายืม เปลี่ยนรูปภาพหน้าปก หรืออัปโหลดหนังสือใหม่เข้าสู่เว็บไซต์
                 </p>
+              </div>
+
+              {/* Add New Book Button */}
+              <button
+                type="button"
+                onClick={handleOpenAddBook}
+                className="py-2 px-3.5 bg-[#914724] hover:bg-[#793a1c] text-white text-xs font-semibold rounded transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ อัปโหลด / เพิ่มหนังสือใหม่</span>
+              </button>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="p-3 sm:p-4 bg-[#fff8f6] border-b border-[#dac1b8]/70 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-[#7c563f] font-medium flex items-center gap-1">
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>หมวด:</span>
+                </span>
+                <select
+                  value={inventoryCategory}
+                  onChange={(e) => setInventoryCategory(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs bg-white border border-[#dac1b8] rounded text-[#211a18] focus:outline-none focus:border-[#914724]"
+                >
+                  <option value="all">ทุกหมวดหมู่ ({books.length})</option>
+                  <option value="healing">หนังสือฮีลใจและพัฒนาตนเอง</option>
+                  <option value="literature">วรรณกรรมแปลร่วมสมัย</option>
+                  <option value="philosophy">ปรัชญาและบทกวี</option>
+                  <option value="essay">บทความและเรียงความ</option>
+                  <option value="fiction">นิยายแปลอบอุ่น</option>
+                </select>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <input
+                  type="text"
+                  placeholder="ค้นหาชื่อหนังสือ, ผู้แต่ง, ISBN..."
+                  value={inventorySearch}
+                  onChange={(e) => setInventorySearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-[#dac1b8] rounded focus:outline-none focus:border-[#914724]"
+                />
+                <Search className="w-3.5 h-3.5 text-[#87736b] absolute left-2.5 top-2.5 pointer-events-none" />
               </div>
             </div>
 
-            <div className="divide-y divide-[#dac1b8]/40">
-              {books.map((b) => (
-                <div key={b.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#fff8f6]">
-                  <div className="flex items-center gap-3">
-                    <img 
-                      src={b.coverImage} 
-                      alt={b.title} 
-                      className="w-10 h-14 object-cover rounded shadow-sm"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div>
-                      <h4 className="font-semibold text-xs sm:text-sm text-[#211a18]">{b.title}</h4>
-                      <p className="text-xs text-[#7c563f]">{b.author} · {b.categoryLabel} · {b.format}</p>
-                      <div className="text-[11px] text-[#54433c] mt-0.5">
-                        ราคาขาย ฿{b.buyPrice} | ค่าบริการยืม ฿{b.rentPricePerWeek}/สัปดาห์ (มัดจำ ฿{b.depositAmount})
+            {/* Books List */}
+            {filteredInventoryBooks.length === 0 ? (
+              <div className="p-12 text-center text-[#87736b]">
+                <BookOpen className="w-10 h-10 mx-auto opacity-40 mb-2" />
+                <p className="font-medium text-xs">ไม่พบหนังสือที่ตรงกับเงื่อนไขการค้นหา</p>
+                <button
+                  type="button"
+                  onClick={() => { setInventorySearch(''); setInventoryCategory('all'); }}
+                  className="mt-2 text-xs text-[#914724] hover:underline"
+                >
+                  ล้างตัวกรอง
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y divide-[#dac1b8]/40">
+                {filteredInventoryBooks.map((b) => (
+                  <div key={b.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#fff8f6] transition-colors">
+                    {/* Book Information */}
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-12 h-16 rounded shadow-xs overflow-hidden book-spine-crease shrink-0 border border-[#dac1b8] bg-[#f5f0eb]">
+                        <img 
+                          src={b.coverImage} 
+                          alt={b.title} 
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] bg-[#f9ebe7] text-[#7c563f] px-1.5 py-0.2 rounded border border-[#dac1b8] font-medium">
+                            {b.format}
+                          </span>
+                          <span className="text-[11px] text-[#87736b] font-mono">
+                            ISBN: {b.isbn}
+                          </span>
+                        </div>
+                        <h4 className="font-semibold text-xs sm:text-sm text-[#211a18] line-clamp-1">
+                          {b.title}
+                        </h4>
+                        <p className="text-xs text-[#7c563f]">
+                          โดย {b.author} {b.translator && `· แปล: ${b.translator}`} · <span className="text-[#54433c]">{b.categoryLabel}</span>
+                        </p>
+                        <div className="text-[11px] text-[#54433c] flex flex-wrap items-center gap-2 pt-0.5">
+                          <span className="font-semibold text-[#914724]">
+                            ราคาจำหน่าย: ฿{b.buyPrice} (เดิม ฿{b.originalPrice})
+                          </span>
+                          <span>·</span>
+                          <span className="text-[#211a18]">
+                            ค่ายืม: ฿{b.rentPricePerWeek}/สัปดาห์ (มัดจำ ฿{b.depositAmount})
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stock Counters and Action Buttons */}
+                    <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 text-xs pt-2 sm:pt-0 border-t sm:border-t-0 border-[#dac1b8]/40">
+                      <div className="text-right">
+                        <div className="font-medium text-[#211a18] tabular-nums">
+                          สต็อกขาย: <span className="font-bold text-[#914724]">{b.inStock}</span> เล่ม
+                        </div>
+                        <div className="text-[11px] text-[#7c563f] tabular-nums">
+                          พร้อมให้ยืม: {b.availableForRent} เล่ม
+                        </div>
+                      </div>
+
+                      {/* Stock Quick Stepper */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateStock(b.id, -1)}
+                          className="w-6 h-6 rounded bg-[#f3e5e2] text-[#211a18] font-bold hover:bg-[#ede0dc] flex items-center justify-center border border-[#dac1b8]"
+                          title="ลดยอดสต็อก"
+                        >
+                          -
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateStock(b.id, 1)}
+                          className="w-6 h-6 rounded bg-[#914724] text-white font-bold hover:bg-[#793a1c] flex items-center justify-center"
+                          title="เพิ่มยอดสต็อก"
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      {/* Edit & Delete Action Buttons */}
+                      <div className="flex items-center gap-1.5 pl-2 border-l border-[#dac1b8]">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditBook(b)}
+                          className="px-2.5 py-1.5 bg-[#f9ebe7] hover:bg-[#f3e5e2] text-[#914724] border border-[#dac1b8] rounded text-xs font-medium transition-colors flex items-center gap-1 cursor-pointer"
+                          title="แก้ไขข้อมูลหนังสือเล่มนี้"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                          <span>แก้ไข</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBook(b.id)}
+                          className="p-1.5 text-[#87736b] hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                          title="ลบหนังสือเล่มนี้ออกจากระบบ"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-3 text-xs">
-                    <div className="text-right">
-                      <div className="font-medium text-[#211a18] tabular-nums">สต็อกขาย: {b.inStock} เล่ม</div>
-                      <div className="text-[11px] text-[#7c563f] tabular-nums">พร้อมให้ยืม: {b.availableForRent} เล่ม</div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleUpdateStock(b.id, -1)}
-                        className="w-6 h-6 rounded bg-[#f3e5e2] text-[#211a18] font-bold hover:bg-[#ede0dc] flex items-center justify-center border border-[#dac1b8]"
-                      >
-                        -
-                      </button>
-                      <button
-                        onClick={() => handleUpdateStock(b.id, 1)}
-                        className="w-6 h-6 rounded bg-[#914724] text-white font-bold hover:bg-[#793a1c] flex items-center justify-center"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -684,6 +914,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
       </main>
+
+      {/* Book Form Modal for Add / Edit */}
+      <BookFormModal
+        isOpen={isBookModalOpen}
+        onClose={() => setIsBookModalOpen(false)}
+        onSaveBook={handleSaveBook}
+        onDeleteBook={handleDeleteBook}
+        bookToEdit={editingBook}
+      />
     </div>
   );
 };

@@ -15,6 +15,7 @@ import { CartDrawer } from './components/CartDrawer';
 import { AdminGatewayModal } from './components/AdminGatewayModal';
 import { MemberAuthModal } from './components/MemberAuthModal';
 import { AdminDashboard } from './components/AdminDashboard';
+import { BookFormModal } from './components/BookFormModal';
 import { RentBorrowTrackerModal } from './components/RentBorrowTrackerModal';
 import { BorrowingGuideModal } from './components/BorrowingGuideModal';
 import { UserAccountModal } from './components/UserAccountModal';
@@ -32,7 +33,8 @@ import {
   CheckCircle2,
   Calendar,
   Lock,
-  User
+  User,
+  Plus
 } from 'lucide-react';
 
 export default function App() {
@@ -68,6 +70,10 @@ export default function App() {
   const [isRentTrackerOpen, setIsRentTrackerOpen] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+
+  // Global Book Edit / Upload Modal
+  const [isGlobalBookModalOpen, setIsGlobalBookModalOpen] = useState(false);
+  const [bookToEditGlobal, setBookToEditGlobal] = useState<Book | null>(null);
 
   const [currentView, setCurrentView] = useState<'home' | 'catalog' | 'rentals' | 'shop'>('home');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -150,6 +156,33 @@ export default function App() {
   const handleMemberLogout = () => {
     setMemberUser(null);
     showToast('ออกจากระบบสมาชิกเรียบร้อยแล้ว');
+  };
+
+  // Global Book Management Handlers
+  const handleOpenAddGlobalBook = () => {
+    setBookToEditGlobal(null);
+    setIsGlobalBookModalOpen(true);
+  };
+
+  const handleOpenEditGlobalBook = (book: Book) => {
+    setBookToEditGlobal(book);
+    setIsGlobalBookModalOpen(true);
+  };
+
+  const handleSaveGlobalBook = (savedBook: Book, isNew: boolean) => {
+    if (isNew) {
+      setBooks([savedBook, ...books]);
+      showToast(`อัปโหลดและเพิ่มหนังสือ "${savedBook.title}" เข้าสู่เว็บไซต์เรียบร้อยแล้ว`);
+    } else {
+      setBooks(books.map((b) => (b.id === savedBook.id ? savedBook : b)));
+      showToast(`บันทึกการแก้ไขข้อมูลหนังสือ "${savedBook.title}" เรียบร้อยแล้ว`);
+    }
+  };
+
+  const handleDeleteGlobalBook = (bookId: string) => {
+    const targetBook = books.find((b) => b.id === bookId);
+    setBooks(books.filter((b) => b.id !== bookId));
+    showToast(`ลบหนังสือ "${targetBook?.title || bookId}" ออกจากระบบแล้ว`);
   };
 
   // Admin login handlers
@@ -345,24 +378,38 @@ export default function App() {
             </p>
           </div>
 
-          {/* Search Box */}
-          <div className="relative w-full md:w-72">
-            <input
-              type="text"
-              placeholder="ค้นหาชื่อหนังสือ, นักเขียน, ผู้แปล..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-white border border-[#dac1b8] rounded focus:outline-none focus:border-[#914724] text-[#211a18]"
-            />
-            <Search className="w-4 h-4 text-[#87736b] absolute left-3 top-2.5 pointer-events-none" />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2.5 text-xs text-[#87736b] hover:text-[#211a18]"
-              >
-                ล้าง
-              </button>
-            )}
+          {/* Search Box & Quick Upload */}
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <div className="relative flex-1 md:w-64">
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อหนังสือ, นักเขียน, ผู้แปล..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-white border border-[#dac1b8] rounded focus:outline-none focus:border-[#914724] text-[#211a18]"
+              />
+              <Search className="w-4 h-4 text-[#87736b] absolute left-3 top-2.5 pointer-events-none" />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-2.5 text-xs text-[#87736b] hover:text-[#211a18]"
+                >
+                  ล้าง
+                </button>
+              )}
+            </div>
+
+            {/* Quick Upload Button */}
+            <button
+              type="button"
+              onClick={handleOpenAddGlobalBook}
+              className="py-2 px-3 bg-[#914724] hover:bg-[#793a1c] text-white text-xs font-semibold rounded transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap cursor-pointer shrink-0"
+              title="อัปโหลดหรือเพิ่มหนังสือเล่มใหม่สู่เว็บไซต์"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">+ อัปโหลดหนังสือใหม่</span>
+              <span className="sm:hidden">+ เพิ่มเล่ม</span>
+            </button>
           </div>
         </div>
 
@@ -548,6 +595,7 @@ export default function App() {
         book={selectedBook}
         onClose={() => setSelectedBook(null)}
         onAddToCart={handleAddToCart}
+        onEditBook={handleOpenEditGlobalBook}
       />
 
       {/* 4. Shopping Cart Drawer */}
@@ -581,6 +629,15 @@ export default function App() {
         activeBorrowedCount={borrowedBooks.filter((b) => b.status === 'active').length}
         memberUser={memberUser}
         onLogoutMember={handleMemberLogout}
+      />
+
+      {/* 8. Global Book Form Modal (Upload & Edit) */}
+      <BookFormModal
+        isOpen={isGlobalBookModalOpen}
+        onClose={() => setIsGlobalBookModalOpen(false)}
+        onSaveBook={handleSaveGlobalBook}
+        onDeleteBook={handleDeleteGlobalBook}
+        bookToEdit={bookToEditGlobal}
       />
     </div>
   );

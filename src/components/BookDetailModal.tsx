@@ -1,14 +1,20 @@
 import React, { useState } from 'react';
 import { Book } from '../data/books';
-import { X, Star, BookOpen, ShoppingBag, ShieldCheck, Truck, RotateCcw, Check, Sparkles, BookMarked } from 'lucide-react';
+import { X, Star, BookOpen, ShoppingBag, ShieldCheck, Truck, RotateCcw, Check, Sparkles, BookMarked, Edit } from 'lucide-react';
 
 interface BookDetailModalProps {
   book: Book | null;
   onClose: () => void;
   onAddToCart: (book: Book, type: 'buy' | 'rent', weeks?: number) => void;
+  onEditBook?: (book: Book) => void;
 }
 
-export const BookDetailModal: React.FC<BookDetailModalProps> = ({ book, onClose, onAddToCart }) => {
+export const BookDetailModal: React.FC<BookDetailModalProps> = ({ 
+  book, 
+  onClose, 
+  onAddToCart,
+  onEditBook 
+}) => {
   const [rentWeeks, setRentWeeks] = useState(2);
   const [selectedMode, setSelectedMode] = useState<'rent' | 'buy'>('rent');
 
@@ -77,8 +83,25 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({ book, onClose,
           {/* Right Column: Editorial Copy & Purchase Choice */}
           <div className="md:col-span-7 p-6 sm:p-8 flex flex-col justify-between">
             <div>
-              <div className="inline-block text-[11px] font-medium text-[#7c563f] bg-[#f9ebe7] px-2.5 py-0.5 rounded border border-[#dac1b8] mb-2">
-                {book.categoryLabel} · {book.format}
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="inline-block text-[11px] font-medium text-[#7c563f] bg-[#f9ebe7] px-2.5 py-0.5 rounded border border-[#dac1b8]">
+                  {book.categoryLabel} · {book.format}
+                </div>
+
+                {onEditBook && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onEditBook(book);
+                    }}
+                    className="text-xs text-[#914724] bg-[#fff1ed] hover:bg-[#f9ebe7] px-2.5 py-0.5 rounded border border-[#dac1b8] inline-flex items-center gap-1 font-medium transition-colors cursor-pointer"
+                    title="แก้ไขข้อมูลหนังสือเล่มนี้ (ระบบแอดมิน)"
+                  >
+                    <Edit className="w-3 h-3" />
+                    <span>แก้ไขเล่มนี้ (แอดมิน)</span>
+                  </button>
+                )}
               </div>
 
               <h2 className="text-xl sm:text-2xl font-bold font-editorial-serif text-[#211a18] leading-snug">
