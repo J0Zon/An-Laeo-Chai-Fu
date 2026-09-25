@@ -1,10 +1,14 @@
+import coverCozyMorning from '../assets/images/book_cover_cozy_morning_1790332767768.jpg';
+import coverQuietLibrary from '../assets/images/book_cover_quiet_library_1790332806366.jpg';
+import coverPeacefulMind from '../assets/images/book_cover_peaceful_mind_1790332819709.jpg';
+
 export interface Book {
   id: string;
   title: string;
   originalTitle?: string;
   author: string;
   translator?: string;
-  category: 'healing' | 'literature' | 'philosophy' | 'essay' | 'fiction';
+  category: string;
   categoryLabel: string;
   buyPrice: number;
   originalPrice: number;
@@ -62,7 +66,7 @@ export const INITIAL_BOOKS: Book[] = [
     format: 'ปกอ่อน',
     isbn: '978-616-93821-0-1',
     pages: 248,
-    coverImage: '/src/assets/images/book_cover_cozy_morning_1790332767768.jpg',
+    coverImage: coverCozyMorning,
     description: 'บันทึกบทสนทนาอันอ่อนโยนกับตนเองในเช้าวันหยุดที่ไม่มีกำหนดการ ค้นพบความงามของความธรรมดาและการปล่อยวางความคาดหวังที่หนักอึ้ง',
     curatorQuote: '“บางครั้ง สิ่งที่เราต้องการมากที่สุด ไม่ใช่คำตอบที่ยิ่งใหญ่ แต่เป็นความเงียบสงบเพียงพอที่จะได้ยินเสียงลมหายใจของตัวเอง”',
     rating: 4.9,
@@ -86,7 +90,7 @@ export const INITIAL_BOOKS: Book[] = [
     format: 'ปกแข็ง',
     isbn: '978-616-93821-2-5',
     pages: 312,
-    coverImage: '/src/assets/images/book_cover_quiet_library_1790332806366.jpg',
+    coverImage: coverQuietLibrary,
     description: 'สำรวจปรัชญาวะบิ-ซะบิ ผ่านวัฏจักรของธรรมชาติและการยอมรับความไม่สมบูรณ์แบบของชีวิต หนังสือที่จะโอบกอดช่วงเวลาที่คุณรู้สึกเปราะบาง',
     curatorQuote: '“ใบไม้ที่ร่วงหล่นมิได้พ่ายแพ้ต่อกาลเวลา หากแต่กำลังสละตนเพื่อให้กิ่งก้านได้ผลิใบใหม่อย่างสง่างาม”',
     rating: 4.8,
@@ -110,7 +114,7 @@ export const INITIAL_BOOKS: Book[] = [
     format: 'ปกอ่อน',
     isbn: '978-616-93821-4-9',
     pages: 280,
-    coverImage: '/src/assets/images/book_cover_peaceful_mind_1790332819709.jpg',
+    coverImage: coverPeacefulMind,
     description: 'การออกแบบชีวิตและพื้นที่ภายในให้เปรียบเสมือนเรือนพักใจอันปลอดภัย ท่ามกลางโลกยุคใหม่ที่เต็มไปด้วยการเร่งรีบและสิ่งรบกวน',
     curatorQuote: '“บ้านที่แท้จริงไม่ใช่สถานที่ที่มีหลังคาคุ้มกะลาหัว หากคือสภาวะจิตใจที่คุณสามารถถอดหน้ากากและทอดกายลงได้อย่างสนิทใจ”',
     rating: 4.9,
@@ -134,7 +138,7 @@ export const INITIAL_BOOKS: Book[] = [
     format: 'ปกอ่อน',
     isbn: '978-616-93821-6-3',
     pages: 264,
-    coverImage: '/src/assets/images/book_cover_cozy_morning_1790332767768.jpg',
+    coverImage: coverCozyMorning,
     description: 'เรื่องราวของร้านกาแฟเล็กๆ ที่เจ้าของร้านยินดีรับฝากจดหมายที่ผู้คนไม่อาจเอ่ยปากส่งตรงๆ ความอบอุ่นที่ชะโลมหัวใจผู้คนในวันที่เหนื่อยล้า',
     curatorQuote: '“บางความรู้สึก แม้ไม่ได้ส่งออกไป แต่การได้จรดปากกาเขียน ก็เพียงพอแล้วที่จะเยียวยาบาดแผลข้างใน”',
     rating: 4.7,
@@ -157,7 +161,7 @@ export const INITIAL_BOOKS: Book[] = [
     format: 'ปกแข็ง',
     isbn: '978-616-93821-8-7',
     pages: 196,
-    coverImage: '/src/assets/images/book_cover_quiet_library_1790332806366.jpg',
+    coverImage: coverQuietLibrary,
     description: 'รวมบทกวีคัดสรรว่าด้วยความหวัง ความเพียร และรอยยิ้มของคนตัวเล็กๆ ในสังคม ร่วมเดินทางผ่านตัวอักษรที่ชุบชูวิญญาณ',
     curatorQuote: '“ท้องฟ้ายามค่ำไม่ได้ดำมืดสนิท มันเพียงแค่เตรียมม่านสีเข้มไว้ เพื่อให้ดาวดวงเล็กๆ ได้แสดงพลัง”',
     rating: 5.0,
@@ -181,7 +185,7 @@ export const INITIAL_BOOKS: Book[] = [
     format: 'ปกอ่อน',
     isbn: '978-616-93821-9-4',
     pages: 220,
-    coverImage: '/src/assets/images/book_cover_peaceful_mind_1790332819709.jpg',
+    coverImage: coverPeacefulMind,
     description: 'วิธีฝึกสังเกตความสุขเล็กๆ รายวัน ตั้งแต่กลิ่นกาแฟยามเช้า ลมอ่อนๆ ข้างหน้าต่าง ไปจนถึงการยิ้มให้กับคนแปลกหน้า',
     curatorQuote: '“ชีวิตไม่ต้องยิ่งใหญ่ในทุกนาที แค่มีความสุขกับเรื่องเล็กน้อยสามสิ่งในแต่ละวัน ก็ถือเป็นวันที่งดงามแล้ว”',
     rating: 4.8,
@@ -198,7 +202,7 @@ export const INITIAL_BORROWED_BOOKS: BorrowedBook[] = [
     bookId: 'book-01',
     bookTitle: 'ในความเงียบงัน... มีเสียงของหัวใจกระซิบเบาๆ',
     bookAuthor: 'ฮารุกิ ชินโด',
-    coverImage: '/src/assets/images/book_cover_cozy_morning_1790332767768.jpg',
+    coverImage: coverCozyMorning,
     borrowDate: '18 ก.ย. 2026',
     dueDate: '2 ต.ค. 2026',
     daysRemaining: 7,
@@ -212,7 +216,7 @@ export const INITIAL_BORROWED_BOOKS: BorrowedBook[] = [
     bookId: 'book-02',
     bookTitle: 'ปรัชญาใบไม้ร่วงและศิลปะแห่งการเริ่มต้นใหม่',
     bookAuthor: 'เคย์ ทาคาฮาชิ',
-    coverImage: '/src/assets/images/book_cover_quiet_library_1790332806366.jpg',
+    coverImage: coverQuietLibrary,
     borrowDate: '12 ก.ย. 2026',
     dueDate: '26 ก.ย. 2026',
     daysRemaining: 1,

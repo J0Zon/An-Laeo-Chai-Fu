@@ -20,6 +20,14 @@ import { RentBorrowTrackerModal } from './components/RentBorrowTrackerModal';
 import { BorrowingGuideModal } from './components/BorrowingGuideModal';
 import { UserAccountModal } from './components/UserAccountModal';
 import { 
+  HomepageConfig, 
+  SiteCategory, 
+  INITIAL_HOMEPAGE_CONFIG, 
+  INITIAL_CATEGORIES 
+} from './data/siteConfig';
+import { sqliteService } from './db/sqliteService';
+import heroBookstore from './assets/images/hero_bookstore_curation_1790332831900.jpg';
+import { 
   Search, 
   BookHeart, 
   Sparkles, 
@@ -80,10 +88,21 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Dynamic Site Settings & Categories
+  const [homepageConfig, setHomepageConfig] = useState<HomepageConfig>(INITIAL_HOMEPAGE_CONFIG);
+  const [categories, setCategories] = useState<SiteCategory[]>(INITIAL_CATEGORIES);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
+
+  // Cart operations
+  React.useEffect(() => {
+    sqliteService.syncBooks(books);
+    sqliteService.syncCategories(categories, books);
+    sqliteService.syncHomepageConfig(homepageConfig);
+  }, []);
 
   // Cart operations
   const handleAddToCart = (book: Book, type: 'buy' | 'rent', weeks: number = 2) => {
@@ -171,17 +190,50 @@ export default function App() {
 
   const handleSaveGlobalBook = (savedBook: Book, isNew: boolean) => {
     if (isNew) {
-      setBooks([savedBook, ...books]);
+      const newBooks = [savedBook, ...books];
+      setBooks(newBooks);
+      sqliteService.syncBooks(newBooks);
+      sqliteService.syncCategories(categories, newBooks);
+      sqliteService.logAuditAction({
+        actionType: 'UPLOAD_BOOK',
+        targetType: 'BOOK',
+        targetName: savedBook.title,
+        details: `อัปโหลดหนังสือใหม่สู่เว็บไซต์: ราคา ฿${savedBook.buyPrice}, สต็อก ${savedBook.inStock} เล่ม`,
+        totalBooksCount: newBooks.length,
+        adminId: adminUser.id
+      });
       showToast(`อัปโหลดและเพิ่มหนังสือ "${savedBook.title}" เข้าสู่เว็บไซต์เรียบร้อยแล้ว`);
     } else {
-      setBooks(books.map((b) => (b.id === savedBook.id ? savedBook : b)));
+      const updated = books.map((b) => (b.id === savedBook.id ? savedBook : b));
+      setBooks(updated);
+      sqliteService.syncBooks(updated);
+      sqliteService.syncCategories(categories, updated);
+      sqliteService.logAuditAction({
+        actionType: 'EDIT_BOOK',
+        targetType: 'BOOK',
+        targetName: savedBook.title,
+        details: `แก้ไขข้อมูลหนังสือ: ราคา ฿${savedBook.buyPrice}, ค่ายืม ฿${savedBook.rentPricePerWeek}`,
+        totalBooksCount: books.length,
+        adminId: adminUser.id
+      });
       showToast(`บันทึกการแก้ไขข้อมูลหนังสือ "${savedBook.title}" เรียบร้อยแล้ว`);
     }
   };
 
   const handleDeleteGlobalBook = (bookId: string) => {
     const targetBook = books.find((b) => b.id === bookId);
-    setBooks(books.filter((b) => b.id !== bookId));
+    const updated = books.filter((b) => b.id !== bookId);
+    setBooks(updated);
+    sqliteService.syncBooks(updated);
+    sqliteService.syncCategories(categories, updated);
+    sqliteService.logAuditAction({
+      actionType: 'DELETE_BOOK',
+      targetType: 'BOOK',
+      targetName: targetBook?.title || bookId,
+      details: `ลบหนังสือออกจากระบบ (ยอดหนังสือเหลือ ${updated.length} เล่ม)`,
+      totalBooksCount: updated.length,
+      adminId: adminUser.id
+    });
     showToast(`ลบหนังสือ "${targetBook?.title || bookId}" ออกจากระบบแล้ว`);
   };
 
@@ -195,7 +247,10 @@ export default function App() {
 
   // Filter books based on category and search
   const filteredBooks = books.filter((b) => {
-    const matchesCategory = selectedCategory === 'all' || b.category === selectedCategory;
+    const matchesCategory =
+      selectedCategory === 'all' ||
+      b.category === selectedCategory ||
+      categories.find((c) => c.slug === selectedCategory)?.name === b.category;
     const matchesSearch =
       b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       b.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -217,6 +272,10 @@ export default function App() {
         borrowedBooks={borrowedBooks}
         onUpdateBorrowedBooks={setBorrowedBooks}
         onUpdateBooks={setBooks}
+        homepageConfig={homepageConfig}
+        onUpdateHomepageConfig={setHomepageConfig}
+        categories={categories}
+        onUpdateCategories={setCategories}
       />
     );
   }
@@ -272,19 +331,16 @@ export default function App() {
               <div className="inline-flex items-center gap-2 text-xs text-[#7c563f] bg-white px-3 py-1 rounded border border-[#dac1b8]">
                 <Sparkles className="w-3.5 h-3.5 text-[#914724]" />
                 <span className="font-medium">
-                  พื้นที่แห่งการอ่านอันสงบนิ่ง • จัดส่งถึงมือภายใน 7 วัน
+                  {homepageConfig.heroBadge}
                 </span>
               </div>
 
               <h1 className="font-editorial-serif text-3xl sm:text-4xl lg:text-5xl font-semibold text-[#211a18] tracking-tight leading-[1.15]">
-                ให้ทุกหน้าหนังสือ <br className="hidden sm:inline" />
-                <span className="text-[#914724]">อยู่เป็นเพื่อนใจของคุณ</span>
+                {homepageConfig.heroHeading}
               </h1>
 
-              <p className="text-sm sm:text-base text-[#54433c] leading-relaxed max-w-xl">
-                อ่านแล้วใจฟู คัดสรรหนังสือฮีลใจ วรรณกรรมแปลร่วมสมัย และบทกวีปรัชญา 
-                พร้อมบริการยืม-อ่านส่งถึงบ้าน คืนได้ที่จุดคืนหนังสือสาขาหรือเรียกรับพัสดุฟรี 
-                สร้างช่วงเวลาแห่งความสงบสุขุมให้แก่ชีวิตประจำวัน
+              <p className="text-sm sm:text-base text-[#54433c] leading-relaxed max-w-xl whitespace-pre-line">
+                {homepageConfig.heroSubtitle}
               </p>
 
               {/* Action Buttons: Clearly Separated Member vs Admin Login */}
@@ -341,7 +397,7 @@ export default function App() {
             <div className="lg:col-span-5 relative">
               <div className="relative rounded-xs overflow-hidden shadow-editorial-lift border border-[#dac1b8] bg-[#f5f0eb]">
                 <img
-                  src="/src/assets/images/hero_bookstore_curation_1790332831900.jpg"
+                  src={heroBookstore}
                   alt="ร้านหนังสืออ่านแล้วใจฟู บรรยากาศเงียบสงบ"
                   className="w-full aspect-[4/3] sm:aspect-[16/10] object-cover"
                   referrerPolicy="no-referrer"

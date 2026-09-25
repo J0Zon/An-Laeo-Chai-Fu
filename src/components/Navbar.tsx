@@ -17,6 +17,8 @@ import {
 interface NavbarProps {
   cartCount: number;
   memberUser: { name: string; email: string; avatarText: string; tier: string } | null;
+  announcementText?: string;
+  contactPhone?: string;
   onOpenCart: () => void;
   onOpenAdminGateway: () => void;
   onOpenMemberAuth: () => void;
@@ -32,6 +34,8 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   cartCount,
   memberUser,
+  announcementText = 'บริการยืม-อ่านหนังสือ จัดส่งถึงมือภายใน 7 วัน • คืนหนังสือได้ทุกสาขาที่ร่วมรายการ 1',
+  contactPhone = '0952260122',
   onOpenCart,
   onOpenAdminGateway,
   onOpenMemberAuth,
@@ -54,10 +58,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-2">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#914724]" />
             <span className="font-normal text-[#211a18]">
-              บริการยืม-อ่านหนังสือ จัดส่งถึงมือภายใน 7 วัน
+              {announcementText}
             </span>
-            <span className="hidden sm:inline text-[#87736b]">•</span>
-            <span className="hidden sm:inline">คืนหนังสือได้ทุกสาขาที่ร่วมรายการ 1</span>
           </div>
 
           {/* Right Utility Links */}
@@ -77,11 +79,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>คู่มือบริการยืม-คืน</span>
             </button>
             <a 
-              href="tel:0952260122" 
+              href={`tel:${contactPhone.replace(/[^0-9]/g, '')}`} 
               className="pl-3 sm:pl-4 hover:text-[#914724] transition-colors flex items-center gap-1 font-mono"
             >
               <Phone className="w-3 h-3 text-[#914724]" />
-              <span>โทร 0952260122</span>
+              <span>โทร {contactPhone}</span>
             </a>
           </div>
         </div>

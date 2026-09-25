@@ -12,6 +12,10 @@ import {
   Link as LinkIcon 
 } from 'lucide-react';
 import { Book } from '../data/books';
+import { SiteCategory, INITIAL_CATEGORIES } from '../data/siteConfig';
+import coverCozyMorning from '../assets/images/book_cover_cozy_morning_1790332767768.jpg';
+import coverQuietLibrary from '../assets/images/book_cover_quiet_library_1790332806366.jpg';
+import coverPeacefulMind from '../assets/images/book_cover_peaceful_mind_1790332819709.jpg';
 
 interface BookFormModalProps {
   isOpen: boolean;
@@ -19,20 +23,13 @@ interface BookFormModalProps {
   onSaveBook: (book: Book, isNew: boolean) => void;
   onDeleteBook?: (bookId: string) => void;
   bookToEdit?: Book | null;
+  categories?: SiteCategory[];
 }
 
-const CATEGORY_MAP: Record<Book['category'], string> = {
-  healing: 'หนังสือฮีลใจและพัฒนาตนเอง',
-  literature: 'วรรณกรรมแปลร่วมสมัย',
-  philosophy: 'ปรัชญาและบทกวี',
-  essay: 'บทความและเรียงความอบอุ่น',
-  fiction: 'นิยายแปลอบอุ่น'
-};
-
 const PRESET_COVERS = [
-  { label: 'ปกเช้าอันสงบ (Terracotta & Linen)', url: '/src/assets/images/book_cover_cozy_morning_1790332767768.jpg' },
-  { label: 'ปกวะบิ-ซะบิ (Botanical Paper)', url: '/src/assets/images/book_cover_quiet_library_1790332806366.jpg' },
-  { label: 'ปกเรขาคณิตดินเผา (Clay Arches)', url: '/src/assets/images/book_cover_peaceful_mind_1790332819709.jpg' }
+  { label: 'ปกเช้าอันสงบ (Terracotta & Linen)', url: coverCozyMorning },
+  { label: 'ปกวะบิ-ซะบิ (Botanical Paper)', url: coverQuietLibrary },
+  { label: 'ปกเรขาคณิตดินเผา (Clay Arches)', url: coverPeacefulMind }
 ];
 
 export const BookFormModal: React.FC<BookFormModalProps> = ({
@@ -40,7 +37,8 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
   onClose,
   onSaveBook,
   onDeleteBook,
-  bookToEdit
+  bookToEdit,
+  categories = INITIAL_CATEGORIES
 }) => {
   const isEditing = !!bookToEdit;
 
@@ -48,7 +46,7 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
   const [originalTitle, setOriginalTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [translator, setTranslator] = useState('');
-  const [category, setCategory] = useState<Book['category']>('healing');
+  const [category, setCategory] = useState<string>('healing');
   const [format, setFormat] = useState<Book['format']>('ปกอ่อน');
   const [buyPrice, setBuyPrice] = useState(280);
   const [originalPrice, setOriginalPrice] = useState(330);
@@ -160,6 +158,9 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
       return;
     }
 
+    const selectedCat = categories.find((c) => c.slug === category);
+    const categoryLabel = selectedCat ? selectedCat.name : (category || 'หนังสือทั่วไป');
+
     const savedBook: Book = {
       id: bookToEdit ? bookToEdit.id : `book-${Date.now()}`,
       title: title.trim(),
@@ -167,7 +168,7 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
       author: author.trim(),
       translator: translator.trim() || undefined,
       category,
-      categoryLabel: CATEGORY_MAP[category],
+      categoryLabel,
       buyPrice: Number(buyPrice) || 0,
       originalPrice: Number(originalPrice) || Number(buyPrice),
       rentPricePerWeek: Number(rentPricePerWeek) || 30,
@@ -435,14 +436,14 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
                   </label>
                   <select
                     value={category}
-                    onChange={(e) => setCategory(e.target.value as Book['category'])}
+                    onChange={(e) => setCategory(e.target.value)}
                     className="w-full px-3 py-2 border border-[#dac1b8] rounded bg-white text-xs text-[#211a18]"
                   >
-                    <option value="healing">หนังสือฮีลใจและพัฒนาตนเอง</option>
-                    <option value="literature">วรรณกรรมแปลร่วมสมัย</option>
-                    <option value="philosophy">ปรัชญาและบทกวี</option>
-                    <option value="essay">บทความและเรียงความ</option>
-                    <option value="fiction">นิยายแปลอบอุ่น</option>
+                    {categories.map((cat) => (
+                      <option key={cat.slug} value={cat.slug}>
+                        {cat.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

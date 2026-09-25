@@ -24,10 +24,17 @@ import {
   Edit,
   Trash2,
   UploadCloud,
-  Filter
+  Filter,
+  Database,
+  Layout,
+  Compass
 } from 'lucide-react';
 import { Book, BorrowedBook } from '../data/books';
+import { HomepageConfig, SiteCategory } from '../data/siteConfig';
 import { BookFormModal } from './BookFormModal';
+import { AdminHomepageManager } from './AdminHomepageManager';
+import { AdminSqliteManager } from './AdminSqliteManager';
+import { sqliteService } from '../db/sqliteService';
 
 interface AdminDashboardProps {
   adminUser: { id: string; email: string };
@@ -37,6 +44,10 @@ interface AdminDashboardProps {
   borrowedBooks: BorrowedBook[];
   onUpdateBorrowedBooks: (books: BorrowedBook[]) => void;
   onUpdateBooks: (books: Book[]) => void;
+  homepageConfig: HomepageConfig;
+  onUpdateHomepageConfig: (config: HomepageConfig) => void;
+  categories: SiteCategory[];
+  onUpdateCategories: (categories: SiteCategory[]) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -47,8 +58,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   borrowedBooks,
   onUpdateBorrowedBooks,
   onUpdateBooks,
+  homepageConfig,
+  onUpdateHomepageConfig,
+  categories,
+  onUpdateCategories,
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'rentals' | 'orders' | 'inventory' | 'security'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'homepage' | 'inventory' | 'rentals' | 'orders' | 'sqlite' | 'security'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryCategory, setInventoryCategory] = useState<string>('all');
@@ -141,7 +156,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
     onUpdateBorrowedBooks(updated);
 
-    // Add audit log
+    sqliteService.logAuditAction({
+      actionType: 'RETURN_BOOK',
+      targetType: 'RENTAL',
+      targetName: bookTitle,
+      details: `ตรวจรับคืนหนังสือและโอนคืนเงินมัดจำ ฿${deposit}`,
+      totalBooksCount: books.length,
+      adminId: adminUser.id
+    });
+
     const newLog = {
       id: `LOG-${Date.now()}`,
       time: 'เมื่อสักครู่',
@@ -170,13 +193,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleUpdateStock = (bookId: string, delta: number) => {
+    let targetTitle = '';
+    let newStock = 0;
     const updated = books.map(b => {
       if (b.id === bookId) {
-        return { ...b, inStock: Math.max(0, b.inStock + delta) };
+        newStock = Math.max(0, b.inStock + delta);
+        targetTitle = b.title;
+        return { ...b, inStock: newStock };
       }
       return b;
     });
     onUpdateBooks(updated);
+
+    sqliteService.logAuditAction({
+      actionType: 'UPDATE_STOCK',
+      targetType: 'BOOK',
+      targetName: targetTitle || bookId,
+      details: `ปรับยอดสต็อกขายเป็น ${newStock} เล่ม (${delta > 0 ? '+' : ''}${delta})`,
+      totalBooksCount: books.length,
+      adminId: adminUser.id
+    });
+
     showNotification(`ปรับยอดสต็อกหนังสือเรียบร้อยแล้ว`);
   };
 
@@ -192,9 +229,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleSaveBook = (savedBook: Book, isNew: boolean) => {
     if (isNew) {
-      onUpdateBooks([savedBook, ...books]);
+      const newBooks = [savedBook, ...books];
+      onUpdateBooks(newBooks);
+      sqliteService.syncBooks(newBooks);
+      sqliteService.syncCategories(categories, newBooks);
       showNotification(`อัปโหลดและเพิ่มหนังสือ "${savedBook.title}" สู่คลังหนังสือเรียบร้อยแล้ว`);
       
+      sqliteService.logAuditAction({
+        actionType: 'UPLOAD_BOOK',
+        targetType: 'BOOK',
+        targetName: savedBook.title,
+        details: `อัปโหลดหนังสือใหม่: ISBN ${savedBook.isbn}, ราคา ฿${savedBook.buyPrice}, สต็อก ${savedBook.inStock} เล่ม`,
+        totalBooksCount: newBooks.length,
+        adminId: adminUser.id
+      });
+
       const newLog = {
         id: `LOG-${Date.now()}`,
         time: 'เมื่อสักครู่',
@@ -206,7 +255,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } else {
       const updated = books.map(b => b.id === savedBook.id ? savedBook : b);
       onUpdateBooks(updated);
+      sqliteService.syncBooks(updated);
+      sqliteService.syncCategories(categories, updated);
       showNotification(`บันทึกการแก้ไขหนังสือ "${savedBook.title}" สำเร็จแล้ว`);
+
+      sqliteService.logAuditAction({
+        actionType: 'EDIT_BOOK',
+        targetType: 'BOOK',
+        targetName: savedBook.title,
+        details: `แก้ไขข้อมูลหนังสือ: ราคา ฿${savedBook.buyPrice}, ค่ายืม ฿${savedBook.rentPricePerWeek}/สัปดาห์, มัดจำ ฿${savedBook.depositAmount}`,
+        totalBooksCount: books.length,
+        adminId: adminUser.id
+      });
 
       const newLog = {
         id: `LOG-${Date.now()}`,
@@ -223,7 +283,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const targetBook = books.find(b => b.id === bookId);
     const updated = books.filter(b => b.id !== bookId);
     onUpdateBooks(updated);
+    sqliteService.syncBooks(updated);
+    sqliteService.syncCategories(categories, updated);
     showNotification(`ลบหนังสือ "${targetBook?.title || bookId}" ออกจากระบบแล้ว`);
+
+    sqliteService.logAuditAction({
+      actionType: 'DELETE_BOOK',
+      targetType: 'BOOK',
+      targetName: targetBook?.title || bookId,
+      details: `ลบหนังสือออกจากคลัง (ยอดหนังสือเหลือ ${updated.length} เล่ม)`,
+      totalBooksCount: updated.length,
+      adminId: adminUser.id
+    });
 
     const newLog = {
       id: `LOG-${Date.now()}`,
@@ -233,6 +304,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       status: 'ACTION'
     };
     setAuditLogs([newLog, ...auditLogs]);
+  };
+
+  const handleSaveHomepageConfig = (config: HomepageConfig) => {
+    onUpdateHomepageConfig(config);
+    sqliteService.syncHomepageConfig(config, adminUser.id);
+    sqliteService.logAuditAction({
+      actionType: 'UPDATE_HOMEPAGE',
+      targetType: 'HOMEPAGE',
+      targetName: 'หน้าหลักและแบนเนอร์',
+      details: `ปรับแต่งข้อความและรูปภาพหน้าหลัก (หัวข้อ: "${config.heroHeading.slice(0, 30)}...")`,
+      totalBooksCount: books.length,
+      adminId: adminUser.id
+    });
+    showNotification('บันทึกการตั้งค่าหน้าหลักและบันทึกลง SQLite เรียบร้อยแล้ว');
+  };
+
+  const handleSaveCategories = (cats: SiteCategory[]) => {
+    onUpdateCategories(cats);
+    sqliteService.syncCategories(cats, books);
+    sqliteService.logAuditAction({
+      actionType: 'UPDATE_CATEGORIES',
+      targetType: 'CATEGORY',
+      targetName: 'หมวดหมู่หนังสือ',
+      details: `ปรับปรุงหมวดหมู่หนังสือในระบบ (รวม ${cats.length} หมวด)`,
+      totalBooksCount: books.length,
+      adminId: adminUser.id
+    });
+    showNotification('บันทึกการปรับปรุงหมวดหมู่และบันทึกลง SQLite เรียบร้อยแล้ว');
   };
 
   // Filter books for admin inventory
@@ -315,6 +414,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('homepage')}
+            className={`px-4 py-2 text-xs sm:text-sm font-medium rounded transition-all whitespace-nowrap inline-flex items-center gap-2 ${
+              activeTab === 'homepage'
+                ? 'bg-[#914724] text-white shadow-sm'
+                : 'bg-white text-[#54433c] hover:bg-[#f9ebe7] border border-[#dac1b8]'
+            }`}
+          >
+            <Compass className="w-4 h-4" />
+            <span>ปรับแต่งหน้าหลัก & หมวดหมู่</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('inventory')}
+            className={`px-4 py-2 text-xs sm:text-sm font-medium rounded transition-all whitespace-nowrap inline-flex items-center gap-2 ${
+              activeTab === 'inventory'
+                ? 'bg-[#914724] text-white shadow-sm'
+                : 'bg-white text-[#54433c] hover:bg-[#f9ebe7] border border-[#dac1b8]'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>คลังสินค้าและสาขา</span>
+            <span className="text-[10px] bg-[#fff1ed] text-[#914724] px-1.5 py-0.2 rounded font-bold">
+              {books.length}
+            </span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('rentals')}
             className={`px-4 py-2 text-xs sm:text-sm font-medium rounded transition-all whitespace-nowrap inline-flex items-center gap-2 ${
               activeTab === 'rentals'
@@ -345,15 +471,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('inventory')}
+            onClick={() => setActiveTab('sqlite')}
             className={`px-4 py-2 text-xs sm:text-sm font-medium rounded transition-all whitespace-nowrap inline-flex items-center gap-2 ${
-              activeTab === 'inventory'
+              activeTab === 'sqlite'
                 ? 'bg-[#914724] text-white shadow-sm'
                 : 'bg-white text-[#54433c] hover:bg-[#f9ebe7] border border-[#dac1b8]'
             }`}
           >
-            <BookOpen className="w-4 h-4" />
-            <span>คลังสินค้าและสาขา</span>
+            <Database className="w-4 h-4" />
+            <span>ฐานข้อมูล SQLite & ประวัติ</span>
+            <span className="text-[10px] bg-[#fff1ed] text-[#914724] px-1.5 py-0.2 rounded font-bold font-mono">
+              .sqlite
+            </span>
           </button>
 
           <button
@@ -729,11 +858,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   className="px-2.5 py-1.5 text-xs bg-white border border-[#dac1b8] rounded text-[#211a18] focus:outline-none focus:border-[#914724]"
                 >
                   <option value="all">ทุกหมวดหมู่ ({books.length})</option>
-                  <option value="healing">หนังสือฮีลใจและพัฒนาตนเอง</option>
-                  <option value="literature">วรรณกรรมแปลร่วมสมัย</option>
-                  <option value="philosophy">ปรัชญาและบทกวี</option>
-                  <option value="essay">บทความและเรียงความ</option>
-                  <option value="fiction">นิยายแปลอบอุ่น</option>
+                  {categories.map((c) => (
+                    <option key={c.slug} value={c.slug}>
+                      {c.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -913,6 +1042,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
         )}
+        {/* Tab 6: Homepage & Category Customization */}
+        {activeTab === 'homepage' && (
+          <AdminHomepageManager
+            homepageConfig={homepageConfig}
+            onSaveHomepageConfig={handleSaveHomepageConfig}
+            categories={categories}
+            onSaveCategories={handleSaveCategories}
+            books={books}
+          />
+        )}
+
+        {/* Tab 7: SQLite Audit Database */}
+        {activeTab === 'sqlite' && (
+          <AdminSqliteManager
+            books={books}
+            adminId={adminUser.id}
+          />
+        )}
       </main>
 
       {/* Book Form Modal for Add / Edit */}
@@ -922,6 +1069,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         onSaveBook={handleSaveBook}
         onDeleteBook={handleDeleteBook}
         bookToEdit={editingBook}
+        categories={categories}
       />
     </div>
   );
