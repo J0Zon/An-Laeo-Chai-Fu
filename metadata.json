@@ -1,0 +1,6 @@
+{
+  "name": "อ่านแล้วใจฟู - Warm Editorial Bookstore",
+  "description": "ร้านหนังสือและบริการยืม-อ่านหนังสือสไตล์ Warm Editorial พร้อมระบบจัดการคลังหนังสือและแอดมินเกตเวย์",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Noto Serif Thai", "Noto Serif", serif;
+  --font-sans: "Noto Sans Thai", "Noto Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --color-warm-surface: #fff8f6;
+  --color-warm-dim: #e4d7d4;
+  --color-warm-lowest: #ffffff;
+  --color-warm-low: #fff1ed;
+  --color-warm-container: #f9ebe7;
+  --color-warm-high: #f3e5e2;
+  --color-warm-highest: #ede0dc;
+  --color-warm-on-surface: #211a18;
+  --color-warm-variant: #54433c;
+  --color-warm-outline: #87736b;
+  --color-warm-outline-var: #dac1b8;
+  --color-warm-primary: #914724;
+  --color-warm-primary-alt: #c06c46;
+  --color-warm-secondary: #7c563f;
+  --color-warm-secondary-container: #fdcaac;
+  --color-warm-tertiary: #884d27;
+  --color-warm-error: #ba1a1a;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #fff8f6;
+  color: #211a18;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-editorial-serif {
+  font-family: var(--font-serif);
+}
+
+.font-editorial-sans {
+  font-family: var(--font-sans);
+}
+
+/* Warm Editorial Card Elevation 1 */
+.shadow-editorial-card {
+  box-shadow: 0 4px 18px -4px rgba(44, 37, 35, 0.04), 0 1px 3px 0 rgba(44, 37, 35, 0.02);
+}
+
+/* Warm Editorial Hover / Modal Elevation 2 */
+.shadow-editorial-lift {
+  box-shadow: 0 16px 32px -8px rgba(44, 37, 35, 0.10), 0 4px 12px -2px rgba(44, 37, 35, 0.05);
+}
+
+/* Book Spine Dimensionality Crease */
+.book-spine-crease {
+  position: relative;
+}
+.book-spine-crease::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 12px;
+  background: linear-gradient(90deg, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.05) 30%, rgba(255,255,255,0.1) 60%, rgba(0,0,0,0.03) 100%);
+  pointer-events: none;
+  z-index: 10;
+  border-top-left-radius: inherit;
+  border-bottom-left-radius: inherit;
+}
+
