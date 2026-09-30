@@ -12,7 +12,8 @@ import {
   Sparkles,
   BookOpen,
   Calendar,
-  Layers
+  Layers,
+  Archive
 } from 'lucide-react';
 import { sqliteService, AuditRecord } from '../db/sqliteService';
 import { Book } from '../data/books';
@@ -31,6 +32,7 @@ export const AdminSqliteManager: React.FC<AdminSqliteManagerProps> = ({ books, a
   const [isExecuting, setIsExecuting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [deletedCount, setDeletedCount] = useState<number>(0);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const totalStock = books.reduce((sum, b) => sum + b.inStock, 0);
@@ -40,6 +42,8 @@ export const AdminSqliteManager: React.FC<AdminSqliteManagerProps> = ({ books, a
     try {
       const records = await sqliteService.getAllAuditLogs();
       setLogs(records);
+      const delBooks = await sqliteService.getDeletedBooks();
+      setDeletedCount(delBooks.length);
     } catch (e) {
       console.error(e);
     }
@@ -189,16 +193,16 @@ export const AdminSqliteManager: React.FC<AdminSqliteManagerProps> = ({ books, a
 
       {/* Database File & Stats Summary Bar */}
       <div className="p-4 sm:p-5 bg-[#fff8f6] border-b border-[#dac1b8]/70">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div className="bg-white p-3.5 rounded border border-[#dac1b8] shadow-2xs">
             <div className="text-[11px] text-[#7c563f] font-medium flex items-center justify-between">
-              <span>หนังสือทั้งหมดในระบบ</span>
+              <span>หนังสือในระบบ</span>
               <BookOpen className="w-3.5 h-3.5 text-[#914724]" />
             </div>
             <div className="text-xl sm:text-2xl font-bold font-editorial-serif text-[#211a18] mt-1">
               {books.length} <span className="text-xs font-sans font-normal text-[#54433c]">เล่ม</span>
             </div>
-            <div className="text-[10px] text-[#87736b] mt-0.5">ตาราง site_stats_snapshots</div>
+            <div className="text-[10px] text-[#87736b] mt-0.5">ตาราง books</div>
           </div>
 
           <div className="bg-white p-3.5 rounded border border-[#dac1b8] shadow-2xs">
@@ -221,6 +225,17 @@ export const AdminSqliteManager: React.FC<AdminSqliteManagerProps> = ({ books, a
               {totalRentable} <span className="text-xs font-sans font-normal text-[#54433c]">เล่ม</span>
             </div>
             <div className="text-[10px] text-[#87736b] mt-0.5">บริการยืม-อ่าน 7 วัน</div>
+          </div>
+
+          <div className="bg-white p-3.5 rounded border border-[#dac1b8] shadow-2xs">
+            <div className="text-[11px] text-[#7c563f] font-medium flex items-center justify-between">
+              <span>หนังสือที่ลบ & เซฟ</span>
+              <Archive className="w-3.5 h-3.5 text-[#914724]" />
+            </div>
+            <div className="text-xl sm:text-2xl font-bold font-editorial-serif text-[#914724] mt-1">
+              {deletedCount} <span className="text-xs font-sans font-normal text-[#54433c]">เล่ม</span>
+            </div>
+            <div className="text-[10px] text-[#87736b] mt-0.5">ตาราง deleted_books</div>
           </div>
 
           <div className="bg-white p-3.5 rounded border border-[#dac1b8] shadow-2xs">
@@ -364,6 +379,13 @@ export const AdminSqliteManager: React.FC<AdminSqliteManagerProps> = ({ books, a
               className="px-2 py-0.5 bg-white border border-[#dac1b8] rounded text-[#211a18] hover:bg-[#fff1ed]"
             >
               Books (หนังสือ)
+            </button>
+            <button
+              type="button"
+              onClick={() => setSqlQuery('SELECT id, title, author, isbn, buy_price, deleted_at, deleted_by FROM deleted_books ORDER BY deleted_at DESC;')}
+              className="px-2 py-0.5 bg-[#fff1ed] border border-[#dac1b8] rounded text-[#914724] font-medium hover:bg-[#fde5dc]"
+            >
+              Deleted Books (หนังสือที่ลบ)
             </button>
             <button
               type="button"

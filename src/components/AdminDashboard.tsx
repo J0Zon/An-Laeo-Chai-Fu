@@ -27,14 +27,18 @@ import {
   Filter,
   Database,
   Layout,
-  Compass
+  Compass,
+  Archive,
+  Eye,
+  Download,
+  X
 } from 'lucide-react';
 import { Book, BorrowedBook } from '../data/books';
 import { HomepageConfig, SiteCategory } from '../data/siteConfig';
 import { BookFormModal } from './BookFormModal';
 import { AdminHomepageManager } from './AdminHomepageManager';
 import { AdminSqliteManager } from './AdminSqliteManager';
-import { sqliteService } from '../db/sqliteService';
+import { sqliteService, DeletedBookRecord } from '../db/sqliteService';
 
 interface AdminDashboardProps {
   adminUser: { id: string; email: string };
@@ -68,6 +72,69 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryCategory, setInventoryCategory] = useState<string>('all');
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  // Deleted Books & Archive state
+  const [deletedBooks, setDeletedBooks] = useState<DeletedBookRecord[]>([]);
+  const [inventorySubTab, setInventorySubTab] = useState<'active' | 'deleted'>('active');
+  const [selectedDeletedBookJson, setSelectedDeletedBookJson] = useState<DeletedBookRecord | null>(null);
+  const [bookToDeleteConfirm, setBookToDeleteConfirm] = useState<Book | null>(null);
+
+  const loadDeletedBooks = async () => {
+    try {
+      const list = await sqliteService.getDeletedBooks();
+      setDeletedBooks(list);
+    } catch (e) {
+      console.warn('Failed to load deleted books:', e);
+    }
+  };
+
+  React.useEffect(() => {
+    loadDeletedBooks();
+  }, []);
+
+  const handleDownloadDeletedBookJson = (record: DeletedBookRecord) => {
+    try {
+      const parsed = JSON.parse(record.raw_book_json);
+      const dataToSave = {
+        ...parsed,
+        deletedAt: record.deleted_at,
+        deletedBy: record.deleted_by,
+        deletionReason: record.deletion_reason || 'Deleted by admin'
+      };
+      const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `deleted_book_${record.id}_${record.isbn || 'data'}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.warn('Export JSON error:', err);
+    }
+  };
+
+  const handleRestoreBook = async (bookId: string) => {
+    const restored = await sqliteService.restoreDeletedBook(bookId);
+    if (restored) {
+      const updated = [restored, ...books];
+      onUpdateBooks(updated);
+      await sqliteService.syncBooks(updated);
+      await sqliteService.syncCategories(categories, updated);
+      await loadDeletedBooks();
+      showNotification(`กู้คืนหนังสือ "${restored.title}" กลับเข้าสู่คลังเรียบร้อยแล้ว`);
+
+      await sqliteService.logAuditAction({
+        actionType: 'RESTORE_BOOK',
+        targetType: 'BOOK',
+        targetName: restored.title,
+        details: `กู้คืนหนังสือกลับเข้าสู่คลัง: "${restored.title}" (ISBN: ${restored.isbn})`,
+        totalBooksCount: updated.length,
+        adminId: adminUser.id
+      });
+    }
+  };
 
   // Book management modal state
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
@@ -279,19 +346,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleDeleteBook = (bookId: string) => {
+  const handleDeleteBook = async (bookId: string) => {
     const targetBook = books.find(b => b.id === bookId);
+    if (!targetBook) return;
+
+    // 1. Permanently record and archive deleted book data in SQLite (deleted_books table) & LocalStorage
+    await sqliteService.recordDeletedBook(targetBook, adminUser.id, 'ลบออกจากระบบโดยแอดมิน');
+
+    // 2. Remove from active books
     const updated = books.filter(b => b.id !== bookId);
     onUpdateBooks(updated);
-    sqliteService.syncBooks(updated);
-    sqliteService.syncCategories(categories, updated);
-    showNotification(`ลบหนังสือ "${targetBook?.title || bookId}" ออกจากระบบแล้ว`);
+    await sqliteService.syncBooks(updated);
+    await sqliteService.syncCategories(categories, updated);
 
-    sqliteService.logAuditAction({
+    // Refresh deleted books archive in UI
+    await loadDeletedBooks();
+    setBookToDeleteConfirm(null);
+
+    showNotification(`ลบหนังสือ "${targetBook.title}" และเซฟ Data ลงตาราง deleted_books เรียบร้อยแล้ว (จะไม่ถูกดึงกลับมาอีก)`);
+
+    await sqliteService.logAuditAction({
       actionType: 'DELETE_BOOK',
       targetType: 'BOOK',
-      targetName: targetBook?.title || bookId,
-      details: `ลบหนังสือออกจากคลัง (ยอดหนังสือเหลือ ${updated.length} เล่ม)`,
+      targetName: targetBook.title,
+      details: `ลบหนังสือออกจากคลังถาวร: "${targetBook.title}" (ISBN: ${targetBook.isbn}, ราคา ฿${targetBook.buyPrice}) บันทึกลง deleted_books เรียบร้อย (คงเหลือ ${updated.length} เล่ม)`,
       totalBooksCount: updated.length,
       adminId: adminUser.id
     });
@@ -299,7 +377,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const newLog = {
       id: `LOG-${Date.now()}`,
       time: 'เมื่อสักครู่',
-      event: `เจ้าหน้าที่ ${adminUser.id} ทำการลบหนังสือออกจากคลัง: "${targetBook?.title || bookId}"`,
+      event: `เจ้าหน้าที่ ${adminUser.id} ทำการลบหนังสือและเซฟ Data ประวัติลง SQLite: "${targetBook.title}"`,
       ip: '203.144.144.89 (AD-8842)',
       status: 'ACTION'
     };
@@ -828,6 +906,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <span className="text-xs font-mono bg-white px-2 py-0.5 rounded border border-[#dac1b8] text-[#7c563f]">
                     {books.length} เล่มในระบบ
                   </span>
+                  {deletedBooks.length > 0 && (
+                    <span className="text-xs font-mono bg-[#fff1ed] text-[#914724] px-2 py-0.5 rounded border border-[#dac1b8]">
+                      เซฟประวัติลบ {deletedBooks.length} เล่ม
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-[#54433c] mt-0.5">
                   แอดมินสามารถแก้ไขเนื้อหา ราคา อัตราค่ายืม เปลี่ยนรูปภาพหน้าปก หรืออัปโหลดหนังสือใหม่เข้าสู่เว็บไซต์
@@ -845,148 +928,299 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
             </div>
 
-            {/* Filter and Search Bar */}
-            <div className="p-3 sm:p-4 bg-[#fff8f6] border-b border-[#dac1b8]/70 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-[#7c563f] font-medium flex items-center gap-1">
-                  <Filter className="w-3.5 h-3.5" />
-                  <span>หมวด:</span>
-                </span>
-                <select
-                  value={inventoryCategory}
-                  onChange={(e) => setInventoryCategory(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs bg-white border border-[#dac1b8] rounded text-[#211a18] focus:outline-none focus:border-[#914724]"
-                >
-                  <option value="all">ทุกหมวดหมู่ ({books.length})</option>
-                  {categories.map((c) => (
-                    <option key={c.slug} value={c.slug}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* Sub-Tab Navigation: Active Books vs Deleted Archive */}
+            <div className="flex border-b border-[#dac1b8] bg-[#fbf3f0] px-4 pt-2.5 gap-2">
+              <button
+                type="button"
+                onClick={() => setInventorySubTab('active')}
+                className={`py-2 px-4 text-xs font-medium rounded-t border-t border-l border-r transition-all flex items-center gap-1.5 cursor-pointer ${
+                  inventorySubTab === 'active'
+                    ? 'bg-white border-[#dac1b8] text-[#914724] font-semibold -mb-px shadow-xs'
+                    : 'bg-transparent border-transparent text-[#7c563f] hover:text-[#211a18]'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>หนังสือในคลังหน้าร้าน ({books.length})</span>
+              </button>
 
-              <div className="relative w-full sm:w-64">
-                <input
-                  type="text"
-                  placeholder="ค้นหาชื่อหนังสือ, ผู้แต่ง, ISBN..."
-                  value={inventorySearch}
-                  onChange={(e) => setInventorySearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-[#dac1b8] rounded focus:outline-none focus:border-[#914724]"
-                />
-                <Search className="w-3.5 h-3.5 text-[#87736b] absolute left-2.5 top-2.5 pointer-events-none" />
-              </div>
+              <button
+                type="button"
+                onClick={() => setInventorySubTab('deleted')}
+                className={`py-2 px-4 text-xs font-medium rounded-t border-t border-l border-r transition-all flex items-center gap-1.5 cursor-pointer ${
+                  inventorySubTab === 'deleted'
+                    ? 'bg-white border-[#dac1b8] text-[#914724] font-semibold -mb-px shadow-xs'
+                    : 'bg-transparent border-transparent text-[#7c563f] hover:text-[#211a18]'
+                }`}
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span>คลังข้อมูลหนังสือที่ถูกลบ ({deletedBooks.length})</span>
+                {deletedBooks.length > 0 && (
+                  <span className="text-[10px] bg-[#914724] text-white px-1.5 py-0.2 rounded-full font-mono">
+                    {deletedBooks.length}
+                  </span>
+                )}
+              </button>
             </div>
 
-            {/* Books List */}
-            {filteredInventoryBooks.length === 0 ? (
-              <div className="p-12 text-center text-[#87736b]">
-                <BookOpen className="w-10 h-10 mx-auto opacity-40 mb-2" />
-                <p className="font-medium text-xs">ไม่พบหนังสือที่ตรงกับเงื่อนไขการค้นหา</p>
-                <button
-                  type="button"
-                  onClick={() => { setInventorySearch(''); setInventoryCategory('all'); }}
-                  className="mt-2 text-xs text-[#914724] hover:underline"
-                >
-                  ล้างตัวกรอง
-                </button>
-              </div>
-            ) : (
-              <div className="divide-y divide-[#dac1b8]/40">
-                {filteredInventoryBooks.map((b) => (
-                  <div key={b.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#fff8f6] transition-colors">
-                    {/* Book Information */}
-                    <div className="flex items-start gap-3.5">
-                      <div className="w-12 h-16 rounded shadow-xs overflow-hidden book-spine-crease shrink-0 border border-[#dac1b8] bg-[#f5f0eb]">
-                        <img 
-                          src={b.coverImage} 
-                          alt={b.title} 
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] bg-[#f9ebe7] text-[#7c563f] px-1.5 py-0.2 rounded border border-[#dac1b8] font-medium">
-                            {b.format}
-                          </span>
-                          <span className="text-[11px] text-[#87736b] font-mono">
-                            ISBN: {b.isbn}
-                          </span>
-                        </div>
-                        <h4 className="font-semibold text-xs sm:text-sm text-[#211a18] line-clamp-1">
-                          {b.title}
-                        </h4>
-                        <p className="text-xs text-[#7c563f]">
-                          โดย {b.author} {b.translator && `· แปล: ${b.translator}`} · <span className="text-[#54433c]">{b.categoryLabel}</span>
-                        </p>
-                        <div className="text-[11px] text-[#54433c] flex flex-wrap items-center gap-2 pt-0.5">
-                          <span className="font-semibold text-[#914724]">
-                            ราคาจำหน่าย: ฿{b.buyPrice} (เดิม ฿{b.originalPrice})
-                          </span>
-                          <span>·</span>
-                          <span className="text-[#211a18]">
-                            ค่ายืม: ฿{b.rentPricePerWeek}/สัปดาห์ (มัดจำ ฿{b.depositAmount})
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+            {/* VIEW 1: Active Books */}
+            {inventorySubTab === 'active' && (
+              <>
+                {/* Filter and Search Bar */}
+                <div className="p-3 sm:p-4 bg-[#fff8f6] border-b border-[#dac1b8]/70 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-[#7c563f] font-medium flex items-center gap-1">
+                      <Filter className="w-3.5 h-3.5" />
+                      <span>หมวด:</span>
+                    </span>
+                    <select
+                      value={inventoryCategory}
+                      onChange={(e) => setInventoryCategory(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs bg-white border border-[#dac1b8] rounded text-[#211a18] focus:outline-none focus:border-[#914724]"
+                    >
+                      <option value="all">ทุกหมวดหมู่ ({books.length})</option>
+                      {categories.map((c) => (
+                        <option key={c.slug} value={c.slug}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                    {/* Stock Counters and Action Buttons */}
-                    <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 text-xs pt-2 sm:pt-0 border-t sm:border-t-0 border-[#dac1b8]/40">
-                      <div className="text-right">
-                        <div className="font-medium text-[#211a18] tabular-nums">
-                          สต็อกขาย: <span className="font-bold text-[#914724]">{b.inStock}</span> เล่ม
+                  <div className="relative w-full sm:w-64">
+                    <input
+                      type="text"
+                      placeholder="ค้นหาชื่อหนังสือ, ผู้แต่ง, ISBN..."
+                      value={inventorySearch}
+                      onChange={(e) => setInventorySearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-[#dac1b8] rounded focus:outline-none focus:border-[#914724]"
+                    />
+                    <Search className="w-3.5 h-3.5 text-[#87736b] absolute left-2.5 top-2.5 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Active Books List */}
+                {filteredInventoryBooks.length === 0 ? (
+                  <div className="p-12 text-center text-[#87736b]">
+                    <BookOpen className="w-10 h-10 mx-auto opacity-40 mb-2" />
+                    <p className="font-medium text-xs">ไม่พบหนังสือที่ตรงกับเงื่อนไขการค้นหา</p>
+                    <button
+                      type="button"
+                      onClick={() => { setInventorySearch(''); setInventoryCategory('all'); }}
+                      className="mt-2 text-xs text-[#914724] hover:underline"
+                    >
+                      ล้างตัวกรอง
+                    </button>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-[#dac1b8]/40">
+                    {filteredInventoryBooks.map((b) => (
+                      <div key={b.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#fff8f6] transition-colors">
+                        {/* Book Information */}
+                        <div className="flex items-start gap-3.5">
+                          <div className="w-12 h-16 rounded shadow-xs overflow-hidden book-spine-crease shrink-0 border border-[#dac1b8] bg-[#f5f0eb]">
+                            <img 
+                              src={b.coverImage} 
+                              alt={b.title} 
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] bg-[#f9ebe7] text-[#7c563f] px-1.5 py-0.2 rounded border border-[#dac1b8] font-medium">
+                                {b.format}
+                              </span>
+                              <span className="text-[11px] text-[#87736b] font-mono">
+                                ISBN: {b.isbn}
+                              </span>
+                            </div>
+                            <h4 className="font-semibold text-xs sm:text-sm text-[#211a18] line-clamp-1">
+                              {b.title}
+                            </h4>
+                            <p className="text-xs text-[#7c563f]">
+                              โดย {b.author} {b.translator && `· แปล: ${b.translator}`} · <span className="text-[#54433c]">{b.categoryLabel}</span>
+                            </p>
+                            <div className="text-[11px] text-[#54433c] flex flex-wrap items-center gap-2 pt-0.5">
+                              <span className="font-semibold text-[#914724]">
+                                ราคาจำหน่าย: ฿{b.buyPrice} (เดิม ฿{b.originalPrice})
+                              </span>
+                              <span>·</span>
+                              <span className="text-[#211a18]">
+                                ค่ายืม: ฿{b.rentPricePerWeek}/สัปดาห์ (มัดจำ ฿{b.depositAmount})
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-[11px] text-[#7c563f] tabular-nums">
-                          พร้อมให้ยืม: {b.availableForRent} เล่ม
+
+                        {/* Stock Counters and Action Buttons */}
+                        <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 text-xs pt-2 sm:pt-0 border-t sm:border-t-0 border-[#dac1b8]/40">
+                          <div className="text-right">
+                            <div className="font-medium text-[#211a18] tabular-nums">
+                              สต็อกขาย: <span className="font-bold text-[#914724]">{b.inStock}</span> เล่ม
+                            </div>
+                            <div className="text-[11px] text-[#7c563f] tabular-nums">
+                              พร้อมให้ยืม: {b.availableForRent} เล่ม
+                            </div>
+                          </div>
+
+                          {/* Stock Quick Stepper */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateStock(b.id, -1)}
+                              className="w-6 h-6 rounded bg-[#f3e5e2] text-[#211a18] font-bold hover:bg-[#ede0dc] flex items-center justify-center border border-[#dac1b8]"
+                              title="ลดยอดสต็อก"
+                            >
+                              -
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateStock(b.id, 1)}
+                              className="w-6 h-6 rounded bg-[#914724] text-white font-bold hover:bg-[#793a1c] flex items-center justify-center"
+                              title="เพิ่มยอดสต็อก"
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          {/* Edit & Delete Action Buttons */}
+                          <div className="flex items-center gap-1.5 pl-2 border-l border-[#dac1b8]">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditBook(b)}
+                              className="px-2.5 py-1.5 bg-[#f9ebe7] hover:bg-[#f3e5e2] text-[#914724] border border-[#dac1b8] rounded text-xs font-medium transition-colors flex items-center gap-1 cursor-pointer"
+                              title="แก้ไขข้อมูลหนังสือเล่มนี้"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                              <span>แก้ไข</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setBookToDeleteConfirm(b)}
+                              className="p-1.5 text-[#87736b] hover:text-red-700 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                              title="ลบหนังสือเล่มนี้ออกจากระบบและเซฟ Data ประวัติ"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
 
-                      {/* Stock Quick Stepper */}
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateStock(b.id, -1)}
-                          className="w-6 h-6 rounded bg-[#f3e5e2] text-[#211a18] font-bold hover:bg-[#ede0dc] flex items-center justify-center border border-[#dac1b8]"
-                          title="ลดยอดสต็อก"
-                        >
-                          -
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateStock(b.id, 1)}
-                          className="w-6 h-6 rounded bg-[#914724] text-white font-bold hover:bg-[#793a1c] flex items-center justify-center"
-                          title="เพิ่มยอดสต็อก"
-                        >
-                          +
-                        </button>
-                      </div>
+            {/* VIEW 2: Deleted Books Archive */}
+            {inventorySubTab === 'deleted' && (
+              <div className="space-y-4 p-4 sm:p-5">
+                {/* Information Callout */}
+                <div className="p-3.5 bg-[#fff1ed] border border-[#dac1b8] rounded text-xs text-[#793a1c] space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5 text-[#914724]">
+                    <CheckCircle2 className="w-4 h-4 text-[#914724] shrink-0" />
+                    <span>ระบบบันทึก Data หนังสือที่ถูกลบถาวร (Persistent Deleted Archive)</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    หนังสือที่แอดมินกดลบออกจากระบบจะถูกเซฟ Data ของหนังสือทั้งหมด (ชื่อเรื่อง, ผู้แต่ง, หมวดหมู่, ราคา, สต็อก, ISBN, วันเวลาที่ลบ, และ Raw JSON) บันทึกถาวรลงในฐานข้อมูล SQLite (ตาราง <code className="bg-white px-1 py-0.5 rounded font-mono border border-[#dac1b8]">deleted_books</code>) และ LocalStorage อย่างปลอดภัย เมื่อออกจากเว็บหรือรีเซ็ตหน้าเว็บ หนังสือเหล่านี้จะไม่แสดงผลและจะไม่ถูกดึงกลับมา
+                  </p>
+                </div>
 
-                      {/* Edit & Delete Action Buttons */}
-                      <div className="flex items-center gap-1.5 pl-2 border-l border-[#dac1b8]">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditBook(b)}
-                          className="px-2.5 py-1.5 bg-[#f9ebe7] hover:bg-[#f3e5e2] text-[#914724] border border-[#dac1b8] rounded text-xs font-medium transition-colors flex items-center gap-1 cursor-pointer"
-                          title="แก้ไขข้อมูลหนังสือเล่มนี้"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                          <span>แก้ไข</span>
-                        </button>
+                {deletedBooks.length === 0 ? (
+                  <div className="p-12 text-center text-[#87736b] border border-dashed border-[#dac1b8] rounded">
+                    <Archive className="w-10 h-10 mx-auto opacity-40 mb-2 text-[#914724]" />
+                    <p className="font-semibold text-xs text-[#211a18]">ยังไม่มีรายการหนังสือที่ถูกลบ</p>
+                    <p className="text-[11px] text-[#7c563f] mt-0.5">
+                      เมื่อแอดมินกดลบหนังสือจากคลัง ระบบจะเซฟข้อมูลของหนังสือที่ลบทั้งหมดมาจัดเก็บที่นี่โดยอัตโนมัติ
+                    </p>
+                  </div>
+                ) : (
+                  <div className="border border-[#dac1b8] rounded overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-[#f9ebe7] text-[#54433c] border-b border-[#dac1b8]">
+                          <tr>
+                            <th className="py-2.5 px-4 font-medium">หนังสือที่ถูกลบ</th>
+                            <th className="py-2.5 px-4 font-medium">หมวดหมู่ / ISBN</th>
+                            <th className="py-2.5 px-4 font-medium">ราคา / สต็อกก่อนลบ</th>
+                            <th className="py-2.5 px-4 font-medium">วันเวลาที่ลบ / ผู้ดำเนินการ</th>
+                            <th className="py-2.5 px-4 font-medium text-right">ข้อมูลที่เซฟไว้</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#dac1b8]/40">
+                          {deletedBooks.map((record) => (
+                            <tr key={record.id} className="hover:bg-[#fff8f6] transition-colors">
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  {record.cover_image ? (
+                                    <img
+                                      src={record.cover_image}
+                                      alt={record.title}
+                                      className="w-9 h-12 object-cover rounded border border-[#dac1b8] shrink-0"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <div className="w-9 h-12 rounded bg-[#f3e5e2] flex items-center justify-center text-[#87736b] shrink-0">
+                                      <BookOpen className="w-4 h-4" />
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div className="font-semibold text-[#211a18] line-clamp-1">{record.title}</div>
+                                    <div className="text-[11px] text-[#7c563f]">โดย {record.author}</div>
+                                    <div className="text-[10px] text-red-700 mt-0.5 font-mono">สถานะ: ลบออกจากระบบแล้ว</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="text-[#211a18] font-medium">{record.category_label || record.category}</div>
+                                <div className="text-[11px] text-[#7c563f] font-mono">ISBN: {record.isbn || '-'}</div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="text-[#211a18]">฿{record.buy_price} (ค่ายืม ฿{record.rent_price_per_week})</div>
+                                <div className="text-[11px] text-[#7c563f]">สต็อกเดิม: {record.in_stock} เล่ม</div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="text-[#211a18]">{record.deleted_at}</div>
+                                <div className="text-[11px] text-[#7c563f]">แอดมิน: <span className="font-mono font-medium">{record.deleted_by}</span></div>
+                              </td>
+                              <td className="py-3 px-4 text-right whitespace-nowrap space-x-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedDeletedBookJson(record)}
+                                  className="px-2.5 py-1 bg-white hover:bg-[#fff1ed] text-[#7c563f] border border-[#dac1b8] rounded text-[11px] font-medium transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                  title="เปิดดูข้อมูล JSON เต็มรูปแบบที่เซฟไว้"
+                                >
+                                  <Eye className="w-3 h-3 text-[#914724]" />
+                                  <span>ดู Data JSON</span>
+                                </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteBook(b.id)}
-                          className="p-1.5 text-[#87736b] hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                          title="ลบหนังสือเล่มนี้ออกจากระบบ"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadDeletedBookJson(record)}
+                                  className="px-2 py-1 bg-white hover:bg-[#fff1ed] text-[#7c563f] border border-[#dac1b8] rounded text-[11px] transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                  title="ดาวน์โหลดไฟล์ JSON เก็บไว้ในเครื่อง"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  <span>Export</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreBook(record.id)}
+                                  className="px-2.5 py-1 bg-[#914724] hover:bg-[#793a1c] text-white rounded text-[11px] font-medium transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                  title="กู้คืนหนังสือเล่มนี้กลับสู่คลังหน้าร้าน"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                  <span>กู้คืน</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
@@ -1071,6 +1305,153 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         bookToEdit={editingBook}
         categories={categories}
       />
+
+      {/* MODAL 1: Confirm Permanent Delete & Save Data to SQLite */}
+      {bookToDeleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-[#211a18]/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded border border-[#dac1b8] max-w-md w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-4 bg-[#f9ebe7] border-b border-[#dac1b8] flex items-center justify-between">
+              <div className="flex items-center gap-2 text-red-800 font-semibold text-sm font-editorial-serif">
+                <Trash2 className="w-4 h-4 text-red-700" />
+                <span>ยืนยันการลบหนังสือและเซฟ Data ลง SQLite</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBookToDeleteConfirm(null)}
+                className="p-1 hover:bg-[#ede0dc] rounded text-[#7c563f]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div className="flex items-start gap-3.5 p-3 bg-[#fff8f6] rounded border border-[#dac1b8]">
+                {bookToDeleteConfirm.coverImage ? (
+                  <img
+                    src={bookToDeleteConfirm.coverImage}
+                    alt={bookToDeleteConfirm.title}
+                    className="w-12 h-16 object-cover rounded border border-[#dac1b8] shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-12 h-16 rounded bg-[#f3e5e2] flex items-center justify-center shrink-0">
+                    <BookOpen className="w-5 h-5 text-[#87736b]" />
+                  </div>
+                )}
+                <div>
+                  <div className="font-semibold text-sm text-[#211a18] line-clamp-2">
+                    {bookToDeleteConfirm.title}
+                  </div>
+                  <div className="text-[11px] text-[#7c563f] mt-0.5">
+                    โดย {bookToDeleteConfirm.author} · หมวด {bookToDeleteConfirm.categoryLabel}
+                  </div>
+                  <div className="text-[11px] text-[#54433c] mt-1 font-mono">
+                    ISBN: {bookToDeleteConfirm.isbn} · ราคา ฿{bookToDeleteConfirm.buyPrice}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded text-amber-900 space-y-1">
+                <div className="font-semibold flex items-center gap-1.5 text-xs text-amber-800">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>การเซฟข้อมูลและการลบถาวร:</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  1. ระบบจะ<strong>เซฟ Data ของหนังสือเล่มนี้ทั้งหมด</strong>ลงใน SQLite Table <code className="font-mono bg-white px-1 py-0.5 rounded border border-amber-200">deleted_books</code> และ LocalStorage เพื่อเป็นประวัติหลักฐาน<br/>
+                  2. หนังสือจะ<strong>ถูกลบออกจากหน้าร้านอย่างถาวร</strong> และเมื่อออกจากเว็บหรือรีเซ็ตหน้าเว็บ หนังสือจะไม่มีอยู่อีกต่อไปและ<strong>จะไม่ถูกดึงกลับมา</strong>
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setBookToDeleteConfirm(null)}
+                  className="px-3.5 py-2 bg-white hover:bg-[#fff8f6] border border-[#dac1b8] text-[#54433c] rounded text-xs font-medium cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteBook(bookToDeleteConfirm.id)}
+                  className="px-4 py-2 bg-red-700 hover:bg-red-800 text-white rounded text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>ยืนยันลบและเซฟประวัติ</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: View Saved Deleted Book JSON Data */}
+      {selectedDeletedBookJson && (
+        <div className="fixed inset-0 z-50 bg-[#211a18]/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded border border-[#dac1b8] max-w-2xl w-full shadow-2xl overflow-hidden max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95">
+            <div className="p-4 bg-[#f9ebe7] border-b border-[#dac1b8] flex items-center justify-between">
+              <div>
+                <h4 className="font-semibold text-sm font-editorial-serif text-[#211a18] flex items-center gap-2">
+                  <Archive className="w-4 h-4 text-[#914724]" />
+                  <span>Data หนังสือที่ถูกลบ (Saved Deleted Book JSON)</span>
+                </h4>
+                <p className="text-[11px] text-[#7c563f] mt-0.5">
+                  ID: {selectedDeletedBookJson.id} · บันทึกเมื่อ {selectedDeletedBookJson.deleted_at} โดย {selectedDeletedBookJson.deleted_by}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDeletedBookJson(null)}
+                className="p-1 hover:bg-[#ede0dc] rounded text-[#7c563f]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 flex-1 overflow-y-auto bg-[#211a18]">
+              <pre className="text-[11px] font-mono text-[#f9ebe7] leading-relaxed whitespace-pre-wrap">
+                {JSON.stringify(
+                  {
+                    meta: {
+                      id: selectedDeletedBookJson.id,
+                      title: selectedDeletedBookJson.title,
+                      deletedAt: selectedDeletedBookJson.deleted_at,
+                      deletedBy: selectedDeletedBookJson.deleted_by,
+                      deletionReason: selectedDeletedBookJson.deletion_reason,
+                      storedInSqliteTable: 'deleted_books'
+                    },
+                    bookData: JSON.parse(selectedDeletedBookJson.raw_book_json)
+                  },
+                  null,
+                  2
+                )}
+              </pre>
+            </div>
+
+            <div className="p-3 bg-[#fdf5f3] border-t border-[#dac1b8] flex items-center justify-between text-xs">
+              <span className="text-[#7c563f]">
+                สถานะ: จัดเก็บถาวรในตาราง <code className="font-mono bg-white px-1 py-0.5 rounded border border-[#dac1b8]">deleted_books</code>
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadDeletedBookJson(selectedDeletedBookJson)}
+                  className="px-3 py-1.5 bg-white hover:bg-[#fff1ed] text-[#7c563f] border border-[#dac1b8] rounded text-xs font-medium flex items-center gap-1 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>ดาวน์โหลด .json</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDeletedBookJson(null)}
+                  className="px-4 py-1.5 bg-[#914724] hover:bg-[#793a1c] text-white rounded text-xs font-semibold cursor-pointer"
+                >
+                  ปิด
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

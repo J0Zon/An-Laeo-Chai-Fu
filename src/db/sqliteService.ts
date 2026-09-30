@@ -24,8 +24,34 @@ export interface StatsSnapshot {
   admin_id: string;
 }
 
+export interface DeletedBookRecord {
+  id: string;
+  title: string;
+  original_title?: string;
+  author: string;
+  translator?: string;
+  category: string;
+  category_label?: string;
+  buy_price: number;
+  original_price?: number;
+  rent_price_per_week: number;
+  deposit_amount: number;
+  format?: string;
+  isbn?: string;
+  pages?: number;
+  cover_image?: string;
+  in_stock: number;
+  raw_book_json: string;
+  deleted_at: string;
+  deleted_by: string;
+  deletion_reason?: string;
+}
+
 const STORAGE_KEY = 'naiin_bookstore_sqlite_bin';
 const BACKUP_LOGS_KEY = 'naiin_bookstore_audit_backup';
+export const STORAGE_DELETED_BOOKS_KEY = 'bookstore_deleted_books_archive';
+export const STORAGE_DELETED_IDS_KEY = 'bookstore_deleted_book_ids';
+export const STORAGE_ACTIVE_BOOKS_KEY = 'bookstore_active_books';
 
 class SqliteService {
   private db: Database | null = null;
@@ -177,6 +203,7 @@ class SqliteService {
         author TEXT NOT NULL,
         translator TEXT,
         category TEXT NOT NULL,
+        category_label TEXT,
         buy_price REAL NOT NULL,
         original_price REAL,
         rent_price_per_week REAL NOT NULL,
@@ -184,14 +211,41 @@ class SqliteService {
         format TEXT,
         isbn TEXT,
         pages INTEGER,
+        cover_image TEXT,
         in_stock INTEGER NOT NULL,
         available_for_rent INTEGER NOT NULL,
         publish_year TEXT,
         rating REAL,
+        review_count INTEGER DEFAULT 0,
         curator_quote TEXT,
         description TEXT,
         created_at TEXT,
         updated_at TEXT
+      );
+    `);
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS deleted_books (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        original_title TEXT,
+        author TEXT NOT NULL,
+        translator TEXT,
+        category TEXT NOT NULL,
+        category_label TEXT,
+        buy_price REAL,
+        original_price REAL,
+        rent_price_per_week REAL,
+        deposit_amount REAL,
+        format TEXT,
+        isbn TEXT,
+        pages INTEGER,
+        cover_image TEXT,
+        in_stock INTEGER,
+        raw_book_json TEXT NOT NULL,
+        deleted_at TEXT NOT NULL,
+        deleted_by TEXT NOT NULL,
+        deletion_reason TEXT
       );
     `);
 
@@ -270,25 +324,198 @@ class SqliteService {
     this.saveFallbackLogs();
   }
 
+  public getDeletedBookIds(): string[] {
+    try {
+      const saved = localStorage.getItem(STORAGE_DELETED_IDS_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async recordDeletedBook(book: Book, deletedBy = 'AD-8842', reason = 'ลบออกจากระบบโดยผู้ดูแลระบบ'): Promise<void> {
+    const now = new Date().toLocaleString('th-TH', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit',
+      second: '2-digit'
+    });
+
+    const deletedRecord: DeletedBookRecord = {
+      id: book.id,
+      title: book.title,
+      original_title: book.originalTitle || '',
+      author: book.author,
+      translator: book.translator || '',
+      category: book.category,
+      category_label: book.categoryLabel || '',
+      buy_price: book.buyPrice,
+      original_price: book.originalPrice || book.buyPrice,
+      rent_price_per_week: book.rentPricePerWeek,
+      deposit_amount: book.depositAmount,
+      format: book.format,
+      isbn: book.isbn,
+      pages: book.pages,
+      cover_image: book.coverImage || '',
+      in_stock: book.inStock,
+      raw_book_json: JSON.stringify(book),
+      deleted_at: now,
+      deleted_by: deletedBy,
+      deletion_reason: reason
+    };
+
+    // 1. Permanent save in LocalStorage (both deleted IDs list and full data archive)
+    try {
+      const deletedIds = this.getDeletedBookIds();
+      if (!deletedIds.includes(book.id)) {
+        deletedIds.push(book.id);
+        localStorage.setItem(STORAGE_DELETED_IDS_KEY, JSON.stringify(deletedIds));
+      }
+
+      const archiveStr = localStorage.getItem(STORAGE_DELETED_BOOKS_KEY);
+      const archive: DeletedBookRecord[] = archiveStr ? JSON.parse(archiveStr) : [];
+      const updatedArchive = archive.filter((item) => item.id !== book.id);
+      updatedArchive.unshift(deletedRecord);
+      localStorage.setItem(STORAGE_DELETED_BOOKS_KEY, JSON.stringify(updatedArchive));
+
+      // Remove from active books in storage so refresh will NEVER pull it back
+      const activeStr = localStorage.getItem(STORAGE_ACTIVE_BOOKS_KEY);
+      if (activeStr) {
+        const active: Book[] = JSON.parse(activeStr);
+        const updatedActive = active.filter((b) => b.id !== book.id);
+        localStorage.setItem(STORAGE_ACTIVE_BOOKS_KEY, JSON.stringify(updatedActive));
+      }
+    } catch (err) {
+      console.warn('LocalStorage save deleted book failed:', err);
+    }
+
+    // 2. Permanent save in SQLite database
+    const db = await this.getDatabase();
+    if (db) {
+      try {
+        db.run(
+          `INSERT OR REPLACE INTO deleted_books (
+            id, title, original_title, author, translator, category, category_label,
+            buy_price, original_price, rent_price_per_week, deposit_amount, format,
+            isbn, pages, cover_image, in_stock, raw_book_json, deleted_at, deleted_by, deletion_reason
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            deletedRecord.id,
+            deletedRecord.title,
+            deletedRecord.original_title || '',
+            deletedRecord.author,
+            deletedRecord.translator || '',
+            deletedRecord.category,
+            deletedRecord.category_label || '',
+            deletedRecord.buy_price,
+            deletedRecord.original_price || deletedRecord.buy_price,
+            deletedRecord.rent_price_per_week,
+            deletedRecord.deposit_amount,
+            deletedRecord.format || '',
+            deletedRecord.isbn || '',
+            deletedRecord.pages || 0,
+            deletedRecord.cover_image || '',
+            deletedRecord.in_stock,
+            deletedRecord.raw_book_json,
+            deletedRecord.deleted_at,
+            deletedRecord.deleted_by,
+            deletedRecord.deletion_reason || ''
+          ]
+        );
+
+        // Delete from books table in SQLite
+        db.run(`DELETE FROM books WHERE id = ?`, [book.id]);
+        this.persist();
+      } catch (e) {
+        console.error('Error recording deleted book into SQLite:', e);
+      }
+    }
+  }
+
+  public async getDeletedBooks(): Promise<DeletedBookRecord[]> {
+    const db = await this.getDatabase();
+    if (db) {
+      try {
+        const stmt = db.prepare(`SELECT * FROM deleted_books ORDER BY deleted_at DESC`);
+        const results: DeletedBookRecord[] = [];
+        while (stmt.step()) {
+          const row = stmt.getAsObject();
+          results.push(row as unknown as DeletedBookRecord);
+        }
+        stmt.free();
+        if (results.length > 0) {
+          return results;
+        }
+      } catch (e) {
+        console.warn('Querying deleted_books from SQLite failed, checking fallback:', e);
+      }
+    }
+
+    try {
+      const saved = localStorage.getItem(STORAGE_DELETED_BOOKS_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
+
+    return [];
+  }
+
+  public async restoreDeletedBook(bookId: string): Promise<Book | null> {
+    let restoredBook: Book | null = null;
+    try {
+      const archiveStr = localStorage.getItem(STORAGE_DELETED_BOOKS_KEY);
+      const archive: DeletedBookRecord[] = archiveStr ? JSON.parse(archiveStr) : [];
+      const item = archive.find((i) => i.id === bookId);
+      if (item && item.raw_book_json) {
+        restoredBook = JSON.parse(item.raw_book_json);
+        const newArchive = archive.filter((i) => i.id !== bookId);
+        localStorage.setItem(STORAGE_DELETED_BOOKS_KEY, JSON.stringify(newArchive));
+      }
+
+      const deletedIds = this.getDeletedBookIds();
+      const newDeletedIds = deletedIds.filter((id) => id !== bookId);
+      localStorage.setItem(STORAGE_DELETED_IDS_KEY, JSON.stringify(newDeletedIds));
+    } catch (e) {
+      console.warn('Failed to restore book from localStorage:', e);
+    }
+
+    const db = await this.getDatabase();
+    if (db) {
+      try {
+        db.run(`DELETE FROM deleted_books WHERE id = ?`, [bookId]);
+        this.persist();
+      } catch {}
+    }
+
+    return restoredBook;
+  }
+
   public async syncBooks(books: Book[]): Promise<void> {
+    const deletedIds = this.getDeletedBookIds();
+    // Guarantee that NO deleted book ever enters SQLite
+    const activeBooks = books.filter((b) => !deletedIds.includes(b.id));
+
     const db = await this.getDatabase();
     if (!db) return;
 
     const now = new Date().toLocaleString('th-TH');
     try {
       db.run('DELETE FROM books');
-      for (const b of books) {
+      for (const b of activeBooks) {
         db.run(
           `INSERT INTO books (
-            id, title, original_title, author, translator, category, buy_price, original_price,
-            rent_price_per_week, deposit_amount, format, isbn, pages, in_stock, available_for_rent,
-            publish_year, rating, curator_quote, description, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            id, title, original_title, author, translator, category, category_label, buy_price, original_price,
+            rent_price_per_week, deposit_amount, format, isbn, pages, cover_image, in_stock, available_for_rent,
+            publish_year, rating, review_count, curator_quote, description, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             b.id, b.title, b.originalTitle || '', b.author, b.translator || '', b.category,
-            b.buyPrice, b.originalPrice || b.buyPrice, b.rentPricePerWeek, b.depositAmount,
-            b.format, b.isbn, b.pages, b.inStock, b.availableForRent, b.publishYear,
-            b.rating, b.curatorQuote || '', b.description || '', now, now
+            b.categoryLabel || '', b.buyPrice, b.originalPrice || b.buyPrice, b.rentPricePerWeek, b.depositAmount,
+            b.format, b.isbn, b.pages, b.coverImage || '', b.inStock, b.availableForRent, b.publishYear,
+            b.rating, b.reviewCount || 0, b.curatorQuote || '', b.description || '', now, now
           ]
         );
       }

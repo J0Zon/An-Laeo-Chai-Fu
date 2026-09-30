@@ -45,9 +45,43 @@ import {
   Plus
 } from 'lucide-react';
 
+const getInitialBooks = (): Book[] => {
+  try {
+    const deletedIdsStr = localStorage.getItem('bookstore_deleted_book_ids');
+    const deletedIds: string[] = deletedIdsStr ? JSON.parse(deletedIdsStr) : [];
+
+    const saved = localStorage.getItem('bookstore_active_books');
+    if (saved) {
+      const parsed: Book[] = JSON.parse(saved);
+      // Ensure no deleted book is ever present
+      return parsed.filter((b) => !deletedIds.includes(b.id));
+    }
+    return INITIAL_BOOKS.filter((b) => !deletedIds.includes(b.id));
+  } catch (e) {
+    console.error('Failed to load initial books:', e);
+    return INITIAL_BOOKS;
+  }
+};
+
+const getInitialHomepageConfig = (): HomepageConfig => {
+  try {
+    const saved = localStorage.getItem('bookstore_homepage_config');
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return INITIAL_HOMEPAGE_CONFIG;
+};
+
+const getInitialCategories = (): SiteCategory[] => {
+  try {
+    const saved = localStorage.getItem('bookstore_categories');
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return INITIAL_CATEGORIES;
+};
+
 export default function App() {
   // Books & circulation state
-  const [books, setBooks] = useState<Book[]>(INITIAL_BOOKS);
+  const [books, setBooks] = useState<Book[]>(getInitialBooks);
   const [borrowedBooks, setBorrowedBooks] = useState<BorrowedBook[]>(INITIAL_BORROWED_BOOKS);
   const [cartItems, setCartItems] = useState<CartItem[]>(INITIAL_CART_ITEMS);
 
@@ -88,15 +122,40 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Dynamic Site Settings & Categories
-  const [homepageConfig, setHomepageConfig] = useState<HomepageConfig>(INITIAL_HOMEPAGE_CONFIG);
-  const [categories, setCategories] = useState<SiteCategory[]>(INITIAL_CATEGORIES);
+  const [homepageConfig, setHomepageConfig] = useState<HomepageConfig>(getInitialHomepageConfig);
+  const [categories, setCategories] = useState<SiteCategory[]>(getInitialCategories);
+
+  const handleUpdateBooks = (newBooks: Book[]) => {
+    const deletedIds = sqliteService.getDeletedBookIds();
+    const cleanBooks = newBooks.filter((b) => !deletedIds.includes(b.id));
+    setBooks(cleanBooks);
+    try {
+      localStorage.setItem('bookstore_active_books', JSON.stringify(cleanBooks));
+    } catch (e) {
+      console.warn('LocalStorage save books failed:', e);
+    }
+  };
+
+  const handleUpdateHomepageConfig = (config: HomepageConfig) => {
+    setHomepageConfig(config);
+    try {
+      localStorage.setItem('bookstore_homepage_config', JSON.stringify(config));
+    } catch {}
+  };
+
+  const handleUpdateCategories = (cats: SiteCategory[]) => {
+    setCategories(cats);
+    try {
+      localStorage.setItem('bookstore_categories', JSON.stringify(cats));
+    } catch {}
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Cart operations
+  // Sync to SQLite on mount (ensuring deleted books are never synced)
   React.useEffect(() => {
     sqliteService.syncBooks(books);
     sqliteService.syncCategories(categories, books);
@@ -190,7 +249,7 @@ export default function App() {
   const handleSaveGlobalBook = (savedBook: Book, isNew: boolean) => {
     if (isNew) {
       const newBooks = [savedBook, ...books];
-      setBooks(newBooks);
+      handleUpdateBooks(newBooks);
       sqliteService.syncBooks(newBooks);
       sqliteService.syncCategories(categories, newBooks);
       sqliteService.logAuditAction({
@@ -204,7 +263,7 @@ export default function App() {
       showToast(`อัปโหลดและเพิ่มหนังสือ "${savedBook.title}" เข้าสู่เว็บไซต์เรียบร้อยแล้ว`);
     } else {
       const updated = books.map((b) => (b.id === savedBook.id ? savedBook : b));
-      setBooks(updated);
+      handleUpdateBooks(updated);
       sqliteService.syncBooks(updated);
       sqliteService.syncCategories(categories, updated);
       sqliteService.logAuditAction({
@@ -219,21 +278,30 @@ export default function App() {
     }
   };
 
-  const handleDeleteGlobalBook = (bookId: string) => {
+  const handleDeleteGlobalBook = async (bookId: string) => {
     const targetBook = books.find((b) => b.id === bookId);
+    if (!targetBook) return;
+
+    // 1. Permanently record and archive deleted book data in SQLite & LocalStorage
+    await sqliteService.recordDeletedBook(targetBook, adminUser.id, 'ลบออกจากระบบโดยผู้ดูแล');
+
+    // 2. Remove from active books
     const updated = books.filter((b) => b.id !== bookId);
-    setBooks(updated);
-    sqliteService.syncBooks(updated);
-    sqliteService.syncCategories(categories, updated);
-    sqliteService.logAuditAction({
+    handleUpdateBooks(updated);
+    await sqliteService.syncBooks(updated);
+    await sqliteService.syncCategories(categories, updated);
+
+    // 3. Log audit action in SQLite
+    await sqliteService.logAuditAction({
       actionType: 'DELETE_BOOK',
       targetType: 'BOOK',
-      targetName: targetBook?.title || bookId,
-      details: `ลบหนังสือออกจากระบบ (ยอดหนังสือเหลือ ${updated.length} เล่ม)`,
+      targetName: targetBook.title,
+      details: `ลบหนังสือ "${targetBook.title}" (ISBN: ${targetBook.isbn}, ราคา ฿${targetBook.buyPrice}) ออกจากคลังถาวร - บันทึกเข้า deleted_books (คงเหลือ ${updated.length} เล่ม)`,
       totalBooksCount: updated.length,
       adminId: adminUser.id
     });
-    showToast(`ลบหนังสือ "${targetBook?.title || bookId}" ออกจากระบบแล้ว`);
+
+    showToast(`ลบหนังสือ "${targetBook.title}" ออกจากระบบและเซฟประวัติเรียบร้อยแล้ว (จะไม่ถูกดึงกลับมาอีก)`);
   };
 
   // Admin login handlers
@@ -270,11 +338,11 @@ export default function App() {
         books={books}
         borrowedBooks={borrowedBooks}
         onUpdateBorrowedBooks={setBorrowedBooks}
-        onUpdateBooks={setBooks}
+        onUpdateBooks={handleUpdateBooks}
         homepageConfig={homepageConfig}
-        onUpdateHomepageConfig={setHomepageConfig}
+        onUpdateHomepageConfig={handleUpdateHomepageConfig}
         categories={categories}
-        onUpdateCategories={setCategories}
+        onUpdateCategories={handleUpdateCategories}
       />
     );
   }
