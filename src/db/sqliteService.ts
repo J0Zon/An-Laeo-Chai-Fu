@@ -61,13 +61,29 @@ class SqliteService {
 
     this.initPromise = (async () => {
       try {
-        const baseUrl = import.meta.env.BASE_URL || '/';
-        const SQL = await initSqlJs({
-          locateFile: (file) => {
-            // First try relative base URL, sql.js will fall back if necessary
-            return `${baseUrl}${file}`;
+        let baseUrl = import.meta.env.BASE_URL || './';
+        if (!baseUrl.endsWith('/')) {
+          baseUrl += '/';
+        }
+
+        let SQL: any = null;
+        try {
+          SQL = await initSqlJs({
+            locateFile: (file) => `${baseUrl}${file}`
+          });
+        } catch (localErr) {
+          console.warn('Could not load local WASM, falling back to CDN:', localErr);
+          try {
+            SQL = await initSqlJs({
+              locateFile: (file) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/${file}`
+            });
+          } catch (cdnErr) {
+            console.warn('WASM CDN initialization also failed:', cdnErr);
+            return null;
           }
-        });
+        }
+
+        if (!SQL) return null;
 
         // Check if user has an existing saved database in localStorage
         const savedBin = localStorage.getItem(STORAGE_KEY);

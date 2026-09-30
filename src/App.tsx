@@ -68,8 +68,7 @@ export default function App() {
   const [isMemberAuthOpen, setIsMemberAuthOpen] = useState(false);
 
   // Admin Gateway & Dashboard state
-  // Start with isAdminGatewayOpen: true to match Image 7.jpeg directly upon initial viewing
-  const [isAdminGatewayOpen, setIsAdminGatewayOpen] = useState(true);
+  const [isAdminGatewayOpen, setIsAdminGatewayOpen] = useState(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [adminUser, setAdminUser] = useState({ id: 'AD-8842', email: 'staff.naiin@admin.com' });
 
