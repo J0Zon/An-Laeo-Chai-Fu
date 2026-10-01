@@ -31,7 +31,6 @@ import {
   Archive,
   Eye,
   Download,
-  GitBranch,
   X
 } from 'lucide-react';
 import { Book, BorrowedBook } from '../data/books';
@@ -39,7 +38,6 @@ import { HomepageConfig, SiteCategory } from '../data/siteConfig';
 import { BookFormModal } from './BookFormModal';
 import { AdminHomepageManager } from './AdminHomepageManager';
 import { AdminSqliteManager } from './AdminSqliteManager';
-import { AdminGitHubManager } from './AdminGitHubManager';
 import { sqliteService, DeletedBookRecord } from '../db/sqliteService';
 import { realtimeBooksService } from '../services/realtimeBooksService';
 
@@ -70,7 +68,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   categories,
   onUpdateCategories,
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'homepage' | 'inventory' | 'rentals' | 'orders' | 'sqlite' | 'github' | 'security'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'homepage' | 'inventory' | 'rentals' | 'orders' | 'sqlite' | 'security'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryCategory, setInventoryCategory] = useState<string>('all');
@@ -470,15 +468,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setActiveTab('github')}
-              className="inline-flex items-center gap-1.5 text-xs bg-white hover:bg-[#fff8f6] text-[#793a1c] border border-[#dac1b8] px-2.5 py-1.5 rounded transition-colors font-medium cursor-pointer shadow-2xs"
-              title="ตั้งค่าเชื่อมต่อและซิงก์ข้อมูลกับ GitHub"
-            >
-              <GitBranch className="w-3.5 h-3.5 text-[#914724]" />
-              <span className="hidden sm:inline">GitHub Auto-Sync</span>
-            </button>
             <div className="text-right hidden sm:block">
               <div className="text-xs font-medium text-[#211a18]">{adminUser.email}</div>
               <div className="text-[11px] text-[#7c563f] font-mono">Staff ID: {adminUser.id} · Level 4</div>
@@ -587,21 +576,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span>ฐานข้อมูล SQLite & ประวัติ</span>
             <span className="text-[10px] bg-[#fff1ed] text-[#914724] px-1.5 py-0.2 rounded font-bold font-mono">
               .sqlite
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('github')}
-            className={`px-4 py-2 text-xs sm:text-sm font-medium rounded transition-all whitespace-nowrap inline-flex items-center gap-2 ${
-              activeTab === 'github'
-                ? 'bg-[#914724] text-white shadow-sm'
-                : 'bg-white text-[#54433c] hover:bg-[#f9ebe7] border border-[#dac1b8]'
-            }`}
-          >
-            <GitBranch className="w-4 h-4" />
-            <span>ซิงก์ข้อมูล GitHub</span>
-            <span className="text-[10px] bg-[#fff1ed] text-[#914724] px-1.5 py-0.2 rounded font-bold font-mono">
-              Auto-Sync
             </span>
           </button>
 
@@ -1334,15 +1308,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <AdminSqliteManager
             books={books}
             adminId={adminUser.id}
-          />
-        )}
-
-        {/* Tab 8: GitHub Auto-Sync & Realtime Cloud */}
-        {activeTab === 'github' && (
-          <AdminGitHubManager
-            books={books}
-            onUpdateBooks={onUpdateBooks}
-            showNotification={showNotification}
           />
         )}
       </main>
