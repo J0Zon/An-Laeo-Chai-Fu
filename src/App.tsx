@@ -26,6 +26,7 @@ import {
   INITIAL_CATEGORIES 
 } from './data/siteConfig';
 import { sqliteService } from './db/sqliteService';
+import { realtimeBooksService } from './services/realtimeBooksService';
 import heroBookstore from './assets/images/hero_bookstore_curation_1790332831900.jpg';
 import { 
   Search, 
@@ -165,11 +166,98 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Sync to SQLite on mount (ensuring deleted books are never synced)
+  // Sync and Real-Time Event Subscription
   React.useEffect(() => {
-    sqliteService.syncBooks(books);
+    let isMounted = true;
+
+    // 1. Initial fetch from server to get latest books & files
+    const fetchLatestServerBooks = async () => {
+      try {
+        const remoteData = await realtimeBooksService.fetchServerBooks();
+        if (isMounted && remoteData && Array.isArray(remoteData.books) && remoteData.books.length > 0) {
+          const deletedIds = sqliteService.getDeletedBookIds();
+          const cleanBooks = remoteData.books.filter((b) => !deletedIds.includes(b.id));
+          setBooks(cleanBooks);
+          try {
+            localStorage.setItem('bookstore_active_books', JSON.stringify(cleanBooks));
+          } catch {}
+          sqliteService.syncBooks(cleanBooks);
+        }
+      } catch (err) {
+        console.warn('Initial server books fetch failed:', err);
+      }
+    };
+
+    fetchLatestServerBooks();
+
+    // 2. Real-Time Subscription (SSE from server & cross-tab BroadcastChannel)
+    const unsubscribe = realtimeBooksService.subscribe((event) => {
+      if (!isMounted) return;
+
+      if (event.type === 'book_added' && event.book) {
+        const addedBook = event.book;
+        setBooks((prev) => {
+          if (prev.some((b) => b.id === addedBook.id)) return prev;
+          const updated = [addedBook, ...prev];
+          try {
+            localStorage.setItem('bookstore_active_books', JSON.stringify(updated));
+          } catch {}
+          sqliteService.syncBooks(updated);
+          return updated;
+        });
+        showToast(`หนังสือใหม่ถูกเพิ่มเข้าระบบแบบ Real-time: "${addedBook.title}"`);
+      } else if (event.type === 'book_updated' && event.book) {
+        const updatedBook = event.book;
+        setBooks((prev) => {
+          const updated = prev.map((b) => (b.id === updatedBook.id ? updatedBook : b));
+          try {
+            localStorage.setItem('bookstore_active_books', JSON.stringify(updated));
+          } catch {}
+          sqliteService.syncBooks(updated);
+          return updated;
+        });
+        showToast(`อัปเดตข้อมูลหนังสือแบบ Real-time: "${updatedBook.title}"`);
+      } else if (event.type === 'book_deleted' && event.id) {
+        const deletedId = event.id;
+        const deletedTitle = event.book?.title;
+        setBooks((prev) => {
+          const updated = prev.filter((b) => b.id !== deletedId);
+          try {
+            localStorage.setItem('bookstore_active_books', JSON.stringify(updated));
+          } catch {}
+          sqliteService.syncBooks(updated);
+          return updated;
+        });
+        showToast(`หนังสือถูกลบออกจากระบบแบบ Real-time${deletedTitle ? `: "${deletedTitle}"` : ''}`);
+      } else if (event.type === 'book_restored' && event.book) {
+        const restoredBook = event.book;
+        setBooks((prev) => {
+          if (prev.some((b) => b.id === restoredBook.id)) return prev;
+          const updated = [restoredBook, ...prev];
+          try {
+            localStorage.setItem('bookstore_active_books', JSON.stringify(updated));
+          } catch {}
+          sqliteService.syncBooks(updated);
+          return updated;
+        });
+        showToast(`กู้คืนหนังสือเข้าสู่ระบบแบบ Real-time: "${restoredBook.title}"`);
+      } else if (event.type === 'sync' && event.books) {
+        setBooks(event.books);
+        try {
+          localStorage.setItem('bookstore_active_books', JSON.stringify(event.books));
+        } catch {}
+        sqliteService.syncBooks(event.books);
+      }
+    });
+
+    // 3. Initial sync of categories and homepage config to SQLite
     sqliteService.syncCategories(categories, books);
     sqliteService.syncHomepageConfig(homepageConfig);
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   // Cart operations
@@ -326,7 +414,7 @@ export default function App() {
     setIsGlobalBookModalOpen(true);
   };
 
-  const handleSaveGlobalBook = (savedBook: Book, isNew: boolean) => {
+  const handleSaveGlobalBook = async (savedBook: Book, isNew: boolean) => {
     if (isNew) {
       const newBooks = [savedBook, ...books];
       handleUpdateBooks(newBooks);
@@ -340,6 +428,8 @@ export default function App() {
         totalBooksCount: newBooks.length,
         adminId: adminUser.id
       });
+      // Sync to Realtime Server & broadcast to all visitors
+      await realtimeBooksService.addBook(savedBook);
       showToast(`อัปโหลดและเพิ่มหนังสือ "${savedBook.title}" เข้าสู่เว็บไซต์เรียบร้อยแล้ว`);
     } else {
       const updated = books.map((b) => (b.id === savedBook.id ? savedBook : b));
@@ -354,6 +444,8 @@ export default function App() {
         totalBooksCount: books.length,
         adminId: adminUser.id
       });
+      // Sync to Realtime Server & broadcast to all visitors
+      await realtimeBooksService.updateBook(savedBook);
       showToast(`บันทึกการแก้ไขข้อมูลหนังสือ "${savedBook.title}" เรียบร้อยแล้ว`);
     }
   };
@@ -371,7 +463,10 @@ export default function App() {
     await sqliteService.syncBooks(updated);
     await sqliteService.syncCategories(categories, updated);
 
-    // 3. Log audit action in SQLite
+    // 3. Realtime server sync & broadcast to all visitors
+    await realtimeBooksService.deleteBook(bookId);
+
+    // 4. Log audit action in SQLite
     await sqliteService.logAuditAction({
       actionType: 'DELETE_BOOK',
       targetType: 'BOOK',

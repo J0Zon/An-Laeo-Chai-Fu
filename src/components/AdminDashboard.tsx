@@ -39,6 +39,7 @@ import { BookFormModal } from './BookFormModal';
 import { AdminHomepageManager } from './AdminHomepageManager';
 import { AdminSqliteManager } from './AdminSqliteManager';
 import { sqliteService, DeletedBookRecord } from '../db/sqliteService';
+import { realtimeBooksService } from '../services/realtimeBooksService';
 
 interface AdminDashboardProps {
   adminUser: { id: string; email: string };
@@ -116,6 +117,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleRestoreBook = async (bookId: string) => {
+    // 1. Sync restore with Realtime Server & SQLite
+    await realtimeBooksService.restoreBook(bookId);
     const restored = await sqliteService.restoreDeletedBook(bookId);
     if (restored) {
       const updated = [restored, ...books];
@@ -123,7 +126,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       await sqliteService.syncBooks(updated);
       await sqliteService.syncCategories(categories, updated);
       await loadDeletedBooks();
-      showNotification(`กู้คืนหนังสือ "${restored.title}" กลับเข้าสู่คลังเรียบร้อยแล้ว`);
+      showNotification(`กู้คืนหนังสือ "${restored.title}" กลับเข้าสู่คลังเรียบร้อยแล้ว (อัปเดต Real-time)`);
 
       await sqliteService.logAuditAction({
         actionType: 'RESTORE_BOOK',
@@ -259,18 +262,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     showNotification(`ขยายระยะเวลายืมหนังสือเพิ่มอีก 7 วันเรียบร้อยแล้ว`);
   };
 
-  const handleUpdateStock = (bookId: string, delta: number) => {
+  const handleUpdateStock = async (bookId: string, delta: number) => {
     let targetTitle = '';
     let newStock = 0;
+    let targetBook: Book | undefined;
     const updated = books.map(b => {
       if (b.id === bookId) {
         newStock = Math.max(0, b.inStock + delta);
         targetTitle = b.title;
-        return { ...b, inStock: newStock };
+        targetBook = { ...b, inStock: newStock };
+        return targetBook;
       }
       return b;
     });
     onUpdateBooks(updated);
+
+    if (targetBook) {
+      await realtimeBooksService.updateBook(targetBook);
+    }
 
     sqliteService.logAuditAction({
       actionType: 'UPDATE_STOCK',
@@ -281,7 +290,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       adminId: adminUser.id
     });
 
-    showNotification(`ปรับยอดสต็อกหนังสือเรียบร้อยแล้ว`);
+    showNotification(`ปรับยอดสต็อกหนังสือเรียบร้อยแล้ว (อัปเดต Real-time)`);
   };
 
   const handleOpenAddBook = () => {
@@ -294,13 +303,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsBookModalOpen(true);
   };
 
-  const handleSaveBook = (savedBook: Book, isNew: boolean) => {
+  const handleSaveBook = async (savedBook: Book, isNew: boolean) => {
     if (isNew) {
       const newBooks = [savedBook, ...books];
       onUpdateBooks(newBooks);
       sqliteService.syncBooks(newBooks);
       sqliteService.syncCategories(categories, newBooks);
-      showNotification(`อัปโหลดและเพิ่มหนังสือ "${savedBook.title}" สู่คลังหนังสือเรียบร้อยแล้ว`);
+      // Real-time server sync & broadcast
+      await realtimeBooksService.addBook(savedBook);
+      showNotification(`อัปโหลดและเพิ่มหนังสือ "${savedBook.title}" สู่คลังหนังสือเรียบร้อยแล้ว (อัปเดต Real-time)`);
       
       sqliteService.logAuditAction({
         actionType: 'UPLOAD_BOOK',
@@ -324,7 +335,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       onUpdateBooks(updated);
       sqliteService.syncBooks(updated);
       sqliteService.syncCategories(categories, updated);
-      showNotification(`บันทึกการแก้ไขหนังสือ "${savedBook.title}" สำเร็จแล้ว`);
+      // Real-time server sync & broadcast
+      await realtimeBooksService.updateBook(savedBook);
+      showNotification(`บันทึกการแก้ไขหนังสือ "${savedBook.title}" สำเร็จแล้ว (อัปเดต Real-time)`);
 
       sqliteService.logAuditAction({
         actionType: 'EDIT_BOOK',
@@ -350,10 +363,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const targetBook = books.find(b => b.id === bookId);
     if (!targetBook) return;
 
-    // 1. Permanently record and archive deleted book data in SQLite (deleted_books table) & LocalStorage
+    // 1. Realtime server sync & broadcast deletion to all connected visitors
+    await realtimeBooksService.deleteBook(bookId);
+
+    // 2. Permanently record and archive deleted book data in SQLite (deleted_books table) & LocalStorage
     await sqliteService.recordDeletedBook(targetBook, adminUser.id, 'ลบออกจากระบบโดยแอดมิน');
 
-    // 2. Remove from active books
+    // 3. Remove from active books
     const updated = books.filter(b => b.id !== bookId);
     onUpdateBooks(updated);
     await sqliteService.syncBooks(updated);
@@ -363,7 +379,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     await loadDeletedBooks();
     setBookToDeleteConfirm(null);
 
-    showNotification(`ลบหนังสือ "${targetBook.title}" และเซฟ Data ลงตาราง deleted_books เรียบร้อยแล้ว (จะไม่ถูกดึงกลับมาอีก)`);
+    showNotification(`ลบหนังสือ "${targetBook.title}" ออกจากระบบและแจ้งเตือน Real-time เรียบร้อยแล้ว`);
 
     await sqliteService.logAuditAction({
       actionType: 'DELETE_BOOK',
