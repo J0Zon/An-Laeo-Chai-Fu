@@ -1,4 +1,5 @@
 import { Book, INITIAL_BOOKS } from '../data/books';
+import { githubSyncService } from './githubSyncService';
 
 export type RealtimeAction = 'book_added' | 'book_updated' | 'book_deleted' | 'book_restored' | 'sync';
 
@@ -110,15 +111,19 @@ class RealtimeBooksService {
 
   private startPollingFallback() {
     if (typeof window === 'undefined') return;
-    // Check for updates every 12 seconds in case SSE disconnected or between multiple devices
+    // Check for updates every 15 seconds (works on GitHub Pages and across different devices)
     this.pollInterval = setInterval(async () => {
       try {
         const remote = await this.fetchServerBooks();
-        if (remote && remote.books) {
+        if (remote && remote.books && remote.books.length > 0) {
           // Check if changed compared to local
           const localStr = localStorage.getItem('bookstore_active_books');
-          const currentCount = localStr ? JSON.parse(localStr).length : 0;
-          if (remote.books.length !== currentCount) {
+          const localBooks: Book[] = localStr ? JSON.parse(localStr) : [];
+          
+          const hasCountChange = remote.books.length !== localBooks.length;
+          const hasContentChange = JSON.stringify(remote.books.map(b => b.id + b.inStock)) !== JSON.stringify(localBooks.map(b => b.id + b.inStock));
+
+          if (hasCountChange || hasContentChange) {
             this.notifyListeners({
               type: 'sync',
               books: remote.books,
@@ -128,7 +133,7 @@ class RealtimeBooksService {
           }
         }
       } catch {}
-    }, 12000);
+    }, 15000);
   }
 
   private notifyListeners(event: RealtimeBookEvent) {
@@ -158,6 +163,7 @@ class RealtimeBooksService {
   }
 
   public async fetchServerBooks(): Promise<{ books: Book[]; deletedBookIds: string[] } | null> {
+    // 1. Try local Express backend API (if running with server.ts)
     try {
       const resp = await fetch('/api/books', {
         headers: { Accept: 'application/json' },
@@ -173,8 +179,23 @@ class RealtimeBooksService {
         }
       }
     } catch (err) {
-      // Server not reachable (e.g. static host)
+      // Local server not available (e.g. deployed to GitHub Pages)
     }
+
+    // 2. Try fetching directly from GitHub (GitHub Raw CDN or ./books.json)
+    // This allows EVERY visitor on GitHub Pages to see the latest changes in real time!
+    try {
+      const githubResult = await githubSyncService.fetchBooksFromGitHub();
+      if (githubResult && githubResult.books && githubResult.books.length > 0) {
+        return {
+          books: githubResult.books,
+          deletedBookIds: []
+        };
+      }
+    } catch (ghErr) {
+      console.warn('GitHub fetch error in fetchServerBooks:', ghErr);
+    }
+
     return null;
   }
 
@@ -187,20 +208,29 @@ class RealtimeBooksService {
       source: 'local'
     });
 
-    // 2. Send to backend server
+    // 2. Send to backend server if available
     try {
-      const resp = await fetch('/api/books', {
+      await fetch('/api/books', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(book)
       });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.book) return data.book;
-      }
     } catch (err) {
       console.warn('Backend addBook failed, saved in local store:', err);
     }
+
+    // 3. Auto-commit to GitHub if configured
+    try {
+      if (githubSyncService.isConfigured() && githubSyncService.getConfig().autoSync) {
+        const localStr = localStorage.getItem('bookstore_active_books');
+        const list: Book[] = localStr ? JSON.parse(localStr) : [];
+        const fullList = list.some(b => b.id === book.id) ? list : [book, ...list];
+        await githubSyncService.commitBooksToGitHub(fullList, `เพิ่มหนังสือใหม่: "${book.title}"`);
+      }
+    } catch (ghErr) {
+      console.warn('Auto-sync to GitHub failed on addBook:', ghErr);
+    }
+
     return book;
   }
 
@@ -214,20 +244,29 @@ class RealtimeBooksService {
       source: 'local'
     });
 
-    // 2. Send to backend server
+    // 2. Send to backend server if available
     try {
-      const resp = await fetch(`/api/books/${encodeURIComponent(book.id)}`, {
+      await fetch(`/api/books/${encodeURIComponent(book.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(book)
       });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.book) return data.book;
-      }
     } catch (err) {
       console.warn('Backend updateBook failed, saved in local store:', err);
     }
+
+    // 3. Auto-commit to GitHub if configured
+    try {
+      if (githubSyncService.isConfigured() && githubSyncService.getConfig().autoSync) {
+        const localStr = localStorage.getItem('bookstore_active_books');
+        const list: Book[] = localStr ? JSON.parse(localStr) : [];
+        const fullList = list.map(b => b.id === book.id ? book : b);
+        await githubSyncService.commitBooksToGitHub(fullList, `แก้ไขหนังสือ: "${book.title}"`);
+      }
+    } catch (ghErr) {
+      console.warn('Auto-sync to GitHub failed on updateBook:', ghErr);
+    }
+
     return book;
   }
 
@@ -240,16 +279,28 @@ class RealtimeBooksService {
       source: 'local'
     });
 
-    // 2. Send to backend server
+    // 2. Send to backend server if available
     try {
-      const resp = await fetch(`/api/books/${encodeURIComponent(id)}`, {
+      await fetch(`/api/books/${encodeURIComponent(id)}`, {
         method: 'DELETE'
       });
-      if (resp.ok) return true;
     } catch (err) {
       console.warn('Backend deleteBook failed, saved in local store:', err);
     }
-    return false;
+
+    // 3. Auto-commit to GitHub if configured
+    try {
+      if (githubSyncService.isConfigured() && githubSyncService.getConfig().autoSync) {
+        const localStr = localStorage.getItem('bookstore_active_books');
+        const list: Book[] = localStr ? JSON.parse(localStr) : [];
+        const fullList = list.filter(b => b.id !== id);
+        await githubSyncService.commitBooksToGitHub(fullList, `ลบหนังสือ ID: ${id}`);
+      }
+    } catch (ghErr) {
+      console.warn('Auto-sync to GitHub failed on deleteBook:', ghErr);
+    }
+
+    return true;
   }
 
   public async restoreBook(id: string): Promise<Book | null> {

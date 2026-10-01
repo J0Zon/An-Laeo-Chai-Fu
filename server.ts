@@ -56,9 +56,18 @@ function writeBooks(books: any[]) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     fs.writeFileSync(STORE_FILE, JSON.stringify(books, null, 2), 'utf-8');
+    
+    // Also mirror to public/books.json for static hosting / GitHub Pages
+    const publicPath = path.resolve(__dirname, 'public/books.json');
+    const publicDir = path.dirname(publicPath);
+    if (!fs.existsSync(publicDir)) {
+      fs.mkdirSync(publicDir, { recursive: true });
+    }
+    fs.writeFileSync(publicPath, JSON.stringify(books, null, 2), 'utf-8');
+
     currentVersion = Date.now();
   } catch (err) {
-    console.error('Error writing server_books.json:', err);
+    console.error('Error writing server_books.json & public/books.json:', err);
   }
 }
 
