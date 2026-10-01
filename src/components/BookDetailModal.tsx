@@ -96,10 +96,10 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                       onEditBook(book);
                     }}
                     className="text-xs text-[#914724] bg-[#fff1ed] hover:bg-[#f9ebe7] px-2.5 py-0.5 rounded border border-[#dac1b8] inline-flex items-center gap-1 font-medium transition-colors cursor-pointer"
-                    title="แก้ไขข้อมูลหนังสือเล่มนี้ (ระบบแอดมิน)"
+                    title="แก้ไขหรืออัปเดตข้อมูลหนังสือเล่มนี้"
                   >
                     <Edit className="w-3 h-3" />
-                    <span>แก้ไขเล่มนี้ (แอดมิน)</span>
+                    <span>แก้ไขข้อมูลหนังสือ</span>
                   </button>
                 )}
               </div>

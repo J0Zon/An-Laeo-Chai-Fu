@@ -34,6 +34,14 @@ export const BorrowingGuideModal: React.FC<BorrowingGuideModalProps> = ({ isOpen
         </div>
 
         <div className="p-5 sm:p-6 space-y-6 text-xs text-[#54433c]">
+          {/* Reassurance banner */}
+          <div className="p-3 bg-[#e8f5e9] border border-emerald-300 rounded text-emerald-900 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span className="text-xs">
+              <strong>บริการยืมอ่านเปิดกว้างสำหรับทุกคน:</strong> ไม่จำเป็นต้องสมัครสมาชิกหรือเข้าสู่ระบบ คุณสามารถเลือกเล่มที่ต้องการและทำรายการยืมอ่านได้ทันที
+            </span>
+          </div>
+
           {/* Section 1: Process steps */}
           <div>
             <h3 className="font-editorial-serif font-semibold text-sm text-[#211a18] mb-3">

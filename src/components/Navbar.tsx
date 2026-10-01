@@ -147,18 +147,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#914724] rounded-full" />
             )}
           </button>
-
-          <button 
-            onClick={onOpenShop}
-            className={`transition-colors hover:text-[#914724] relative py-1 ${
-              currentView === 'shop' ? 'text-[#914724] font-semibold' : ''
-            }`}
-          >
-            <span>ขายหนังสือ/จัดจำหน่าย</span>
-            {currentView === 'shop' && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#914724] rounded-full" />
-            )}
-          </button>
         </nav>
 
         {/* Action Buttons Zone */}
@@ -178,7 +166,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {memberUser ? (
             <button
               onClick={onOpenUserModal}
-              className="hidden sm:inline-flex items-center gap-1.5 text-xs bg-white hover:bg-[#fff1ed] text-[#211a18] px-3 py-1.5 rounded border border-[#dac1b8] font-medium transition-colors"
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs bg-white hover:bg-[#fff1ed] text-[#211a18] px-3 py-1.5 rounded border border-[#dac1b8] font-medium transition-colors cursor-pointer"
               title="ดูโปรไฟล์และสิทธิ์สมาชิก"
             >
               <User className="w-3.5 h-3.5 text-[#914724]" />
@@ -186,11 +174,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           ) : (
             <button
-              onClick={onOpenMemberAuth}
-              className="hidden sm:inline-flex items-center gap-1.5 text-xs bg-white hover:bg-[#fff1ed] text-[#211a18] px-3 py-1.5 rounded border border-[#dac1b8] font-medium transition-colors cursor-pointer"
-              title="เข้าสู่ระบบสำหรับสมาชิกนักอ่าน"
+              onClick={onOpenUserModal}
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs bg-[#fff1ed] hover:bg-[#f9ebe7] text-[#914724] px-3 py-1.5 rounded border border-[#dac1b8] font-medium transition-colors cursor-pointer"
+              title="สถานะผู้อ่านทั่วไป (เช่า/ซื้อ/ขายได้ทันที ไม่ต้องล็อกอิน)"
             >
-              <span>เข้าสู่ระบบ / สมัครสมาชิก</span>
+              <User className="w-3.5 h-3.5 text-[#914724]" />
+              <span>ผู้อ่านทั่วไป (ไม่ต้องล็อกอิน)</span>
             </button>
           )}
 
@@ -198,7 +187,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             onClick={onOpenCart}
             type="button"
-            className="relative p-2 text-[#211a18] hover:text-[#914724] hover:bg-[#f9ebe7] rounded border border-[#dac1b8] transition-colors"
+            className="relative p-2 text-[#211a18] hover:text-[#914724] hover:bg-[#f9ebe7] rounded border border-[#dac1b8] transition-colors cursor-pointer"
             aria-label="เปิดตะกร้าสินค้า"
           >
             <ShoppingBag className="w-4 h-4 text-[#914724]" />
@@ -209,14 +198,16 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </button>
 
-          {/* Profile Avatar "กช" (From screenshot) */}
+          {/* Profile Avatar (Member Avatar OR Guest Profile) */}
           <button
             onClick={onOpenUserModal}
             type="button"
-            className="w-8 h-8 rounded-full bg-[#7c563f] hover:bg-[#914724] text-white text-xs font-semibold flex items-center justify-center border border-[#dac1b8] transition-colors shadow-xs cursor-pointer"
-            title={`โปรไฟล์: ${memberUser ? memberUser.name : 'คุณกานต์ชนก (กช)'}`}
+            className={`w-8 h-8 rounded-full text-white text-xs font-semibold flex items-center justify-center border border-[#dac1b8] transition-colors shadow-xs cursor-pointer ${
+              memberUser ? 'bg-[#7c563f] hover:bg-[#914724]' : 'bg-[#914724] hover:bg-[#793a1c]'
+            }`}
+            title={memberUser ? `โปรไฟล์สมาชิก: ${memberUser.name}` : 'สถานะผู้ใช้งาน: ผู้อ่านทั่วไป (เช่า/ซื้อได้เลย ไม่ต้องล็อกอิน)'}
           >
-            {memberUser ? memberUser.avatarText : 'กช'}
+            {memberUser ? memberUser.avatarText : <User className="w-4 h-4" />}
           </button>
 
           {/* Mobile Menu Toggle */}
@@ -252,23 +243,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <BookOpen className="w-4 h-4 text-[#914724]" />
             <span>รายการเช่า/ยืมหนังสือ</span>
           </button>
-          <button 
-            onClick={() => { onOpenShop(); setMobileMenuOpen(false); }}
-            className="w-full text-left py-2 px-3 text-sm font-medium rounded hover:bg-[#f9ebe7] text-[#211a18]"
-          >
-            ขายหนังสือ/จัดจำหน่าย
-          </button>
           <div className="pt-2 border-t border-[#dac1b8] flex flex-col gap-2">
             <button
-              onClick={() => { onOpenMemberAuth(); setMobileMenuOpen(false); }}
-              className="w-full py-2 text-xs bg-white text-[#211a18] border border-[#dac1b8] rounded font-medium text-center flex items-center justify-center gap-1.5"
+              onClick={() => { onOpenUserModal(); setMobileMenuOpen(false); }}
+              className="w-full py-2 text-xs bg-[#fff1ed] text-[#914724] border border-[#dac1b8] rounded font-medium text-center flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <User className="w-3.5 h-3.5 text-[#914724]" />
-              <span>เข้าสู่ระบบสมาชิก / สมัครสมาชิก</span>
+              <span>สถานะผู้อ่านทั่วไป (เช่า/ซื้อหนังสือ)</span>
             </button>
             <button
               onClick={() => { onOpenAdminGateway(); setMobileMenuOpen(false); }}
-              className="w-full py-2 text-xs bg-[#f9ebe7] text-[#914724] border border-[#dac1b8] rounded font-semibold text-center flex items-center justify-center gap-1.5"
+              className="w-full py-2 text-xs bg-[#f9ebe7] text-[#7c563f] border border-[#dac1b8] rounded font-semibold text-center flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Key className="w-3.5 h-3.5 text-[#914724]" />
               <span>เข้าสู่ระบบแอดมิน (Naiin Backoffice Gateway)</span>

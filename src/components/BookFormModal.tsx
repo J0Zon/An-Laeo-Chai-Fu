@@ -212,12 +212,12 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
             </div>
             <div>
               <h2 className="font-editorial-serif font-bold text-base sm:text-lg text-[#211a18]">
-                {isEditing ? `แก้ไขข้อมูลหนังสือ: ${bookToEdit.title}` : 'อัปโหลดและเพิ่มหนังสือเล่มใหม่สู่คลัง'}
+                {isEditing ? `แก้ไขข้อมูลหนังสือ: ${bookToEdit.title}` : 'ลงขาย / เพิ่มหนังสือเล่มใหม่ (ไม่ต้องเข้าสู่ระบบ)'}
               </h2>
               <p className="text-xs text-[#54433c]">
                 {isEditing 
                   ? 'ปรับปรุงรายละเอียด ราคา สต็อก หรือเปลี่ยนรูปภาพหน้าปก' 
-                  : 'กรอกรายละเอียดหนังสือเพื่อเผยแพร่บนหน้าร้านและเปิดให้ยืม-อ่านทันที'}
+                  : 'กรอกรายละเอียดหนังสือเพื่อลงขายหรือเปิดให้เช่ายืมอ่านบนเว็บไซต์ได้ทันที โดยไม่ต้องสมัครสมาชิกหรือล็อกอิน'}
               </p>
             </div>
           </div>
@@ -679,7 +679,7 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
               className="px-5 py-2 bg-[#914724] hover:bg-[#793a1c] text-white text-xs font-semibold rounded transition-colors flex items-center gap-1.5 shadow-xs"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>{isEditing ? 'บันทึกการแก้ไข' : 'บันทึกและเผยแพร่หนังสือ'}</span>
+              <span>{isEditing ? 'บันทึกการแก้ไข' : 'ยืนยันลงขาย/เพิ่มหนังสือ (ไม่ต้องล็อกอิน)'}</span>
             </button>
           </div>
         </div>

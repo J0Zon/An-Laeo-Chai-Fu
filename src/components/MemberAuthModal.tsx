@@ -165,6 +165,22 @@ export const MemberAuthModal: React.FC<MemberAuthModalProps> = ({
               สมัครสมาชิกใหม่ (Register)
             </button>
           </div>
+
+          {/* No Login Required Notice & Skip Option */}
+          <div className="mt-3.5 p-2.5 bg-white rounded border border-[#dac1b8] flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5 text-[#793a1c] text-[11px]">
+              <Sparkles className="w-3.5 h-3.5 text-[#914724] shrink-0" />
+              <span>ไม่จำเป็นต้องเข้าสู่ระบบเพื่อเช่าหรือซื้อหนังสือ</span>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-[#914724] font-medium hover:underline text-[11px] inline-flex items-center gap-0.5 cursor-pointer"
+            >
+              <span>ช้อป/ยืมอ่านเลย</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          </div>
         </div>
 
         {/* Form Body */}

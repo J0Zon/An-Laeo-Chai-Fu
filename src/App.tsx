@@ -79,26 +79,36 @@ const getInitialCategories = (): SiteCategory[] => {
   return INITIAL_CATEGORIES;
 };
 
+const getInitialBorrowedBooks = (): BorrowedBook[] => {
+  try {
+    const saved = localStorage.getItem('bookstore_borrowed_books');
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return INITIAL_BORROWED_BOOKS;
+};
+
+const getInitialMemberUser = () => {
+  try {
+    const saved = localStorage.getItem('bookstore_member_user');
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return null;
+};
+
 export default function App() {
   // Books & circulation state
   const [books, setBooks] = useState<Book[]>(getInitialBooks);
-  const [borrowedBooks, setBorrowedBooks] = useState<BorrowedBook[]>(INITIAL_BORROWED_BOOKS);
+  const [borrowedBooks, setBorrowedBooks] = useState<BorrowedBook[]>(getInitialBorrowedBooks);
   const [cartItems, setCartItems] = useState<CartItem[]>(INITIAL_CART_ITEMS);
 
-  // Member Authentication state
+  // Member Authentication state (defaults to null for Guest Reader)
   const [memberUser, setMemberUser] = useState<{
     name: string;
     email: string;
     phone?: string;
     avatarText: string;
     tier: string;
-  } | null>({
-    name: 'กานต์ชนก วรรณวิศิษฏ์',
-    email: 'kanchana.w@reader.co.th',
-    phone: '081-992-4819',
-    avatarText: 'กช',
-    tier: 'สมาชิกคลับอ่านใจฟู VIP'
-  });
+  } | null>(getInitialMemberUser);
   const [isMemberAuthOpen, setIsMemberAuthOpen] = useState(false);
 
   // Admin Gateway & Dashboard state
@@ -212,6 +222,14 @@ export default function App() {
     setCartItems([]);
   };
 
+  // Borrowed books persistence
+  const handleUpdateBorrowedBooks = (newBorrowed: BorrowedBook[]) => {
+    setBorrowedBooks(newBorrowed);
+    try {
+      localStorage.setItem('bookstore_borrowed_books', JSON.stringify(newBorrowed));
+    } catch {}
+  };
+
   // Return book operation
   const handleReturnBook = (borrowId: string) => {
     const updated = borrowedBooks.map((item) => {
@@ -220,19 +238,81 @@ export default function App() {
       }
       return item;
     });
-    setBorrowedBooks(updated);
+    handleUpdateBorrowedBooks(updated);
+  };
+
+  // Checkout handler (supports both Guest and Member)
+  const handleCheckoutSuccess = (
+    customer: { name: string; phone: string; address: string; email: string },
+    rentedItems: CartItem[]
+  ) => {
+    if (rentedItems.length > 0) {
+      const nowStr = new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+      const newBorrowedList: BorrowedBook[] = rentedItems.map((item, idx) => {
+        const weeks = item.weeks || 2;
+        const due = new Date();
+        due.setDate(due.getDate() + weeks * 7);
+        const dueStr = due.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+
+        return {
+          id: `BORROW-${Date.now()}-${idx}`,
+          bookId: item.book.id,
+          bookTitle: item.book.title,
+          bookAuthor: item.book.author,
+          coverImage: item.book.coverImage,
+          borrowDate: nowStr,
+          dueDate: dueStr,
+          daysRemaining: weeks * 7,
+          depositPaid: item.book.depositAmount * item.quantity,
+          rentFee: item.book.rentPricePerWeek * weeks * item.quantity,
+          status: 'active',
+          branchName: 'สาขาอ่านแล้วใจฟู อารีย์ (จุดคืน 1)',
+        };
+      });
+
+      const updatedBorrowed = [...newBorrowedList, ...borrowedBooks];
+      handleUpdateBorrowedBooks(updatedBorrowed);
+
+      sqliteService.logAuditAction({
+        actionType: 'CIRCULATION_BORROW',
+        targetType: 'CIRCULATION',
+        targetName: customer.name,
+        details: `สั่งซื้อ/เช่ายืมสำเร็จ (${memberUser ? 'สมาชิก' : 'บุคคลทั่วไป/Guest'}): ยืม ${rentedItems.length} เล่ม [${rentedItems.map(i => i.book.title).join(', ')}]`,
+        totalBooksCount: books.length,
+        adminId: 'SYSTEM_CHECKOUT'
+      });
+
+      showToast(`สั่งซื้อ/ยืมหนังสือสำเร็จ! บันทึกรายการยืม ${rentedItems.length} เล่มเข้าสู่ระบบติดตามของคุณเรียบร้อยแล้ว`);
+    } else {
+      sqliteService.logAuditAction({
+        actionType: 'ORDER_BUY',
+        targetType: 'CIRCULATION',
+        targetName: customer.name,
+        details: `สั่งซื้อหนังสือสำเร็จ (${memberUser ? 'สมาชิก' : 'บุคคลทั่วไป/Guest'}): จัดส่งถึง ${customer.address}`,
+        totalBooksCount: books.length,
+        adminId: 'SYSTEM_CHECKOUT'
+      });
+
+      showToast('สั่งซื้อหนังสือสำเร็จเรียบร้อย! พัสดุห่อผ้าฝ้ายจะจัดส่งถึงคุณภายใน 7 วัน');
+    }
   };
 
   // Member login & logout handlers
   const handleMemberLoginSuccess = (user: { name: string; email: string; phone?: string; avatarText: string; tier: string }) => {
     setMemberUser(user);
+    try {
+      localStorage.setItem('bookstore_member_user', JSON.stringify(user));
+    } catch {}
     setIsMemberAuthOpen(false);
     showToast(`ยินดีต้อนรับคุณ ${user.name} เข้าสู่ระบบสมาชิกเรียบร้อยแล้ว`);
   };
 
   const handleMemberLogout = () => {
     setMemberUser(null);
-    showToast('ออกจากระบบสมาชิกเรียบร้อยแล้ว');
+    try {
+      localStorage.removeItem('bookstore_member_user');
+    } catch {}
+    showToast('ออกจากระบบสมาชิกแล้ว คุณกำลังใช้งานในฐานะบุคคลทั่วไป (ยังคงเช่าหรือซื้อได้ตามปกติ)');
   };
 
   // Global Book Management Handlers
@@ -379,11 +459,7 @@ export default function App() {
           window.scrollTo({ top: 400, behavior: 'smooth' });
         }}
         onOpenUserModal={() => {
-          if (memberUser) {
-            setIsUserModalOpen(true);
-          } else {
-            setIsMemberAuthOpen(true);
-          }
+          setIsUserModalOpen(true);
         }}
         onOpenGuideModal={() => setIsGuideModalOpen(true)}
         currentView={currentView}
@@ -409,39 +485,6 @@ export default function App() {
               <p className="text-sm sm:text-base text-[#54433c] leading-relaxed max-w-xl whitespace-pre-line">
                 {homepageConfig.heroSubtitle}
               </p>
-
-              {/* Action Buttons: Clearly Separated Member vs Admin Login */}
-              <div className="flex flex-wrap items-center gap-2.5 pt-2">
-                <button
-                  onClick={() => {
-                    setCurrentView('catalog');
-                    const el = document.getElementById('catalog-section');
-                    el?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className="px-5 py-2.5 bg-[#914724] hover:bg-[#793a1c] text-white font-medium text-xs sm:text-sm rounded transition-colors shadow-xs flex items-center gap-2 cursor-pointer"
-                >
-                  <span>สำรวจคลังหนังสือ</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-
-                <button
-                  onClick={() => setIsMemberAuthOpen(true)}
-                  className="px-4 py-2.5 bg-white hover:bg-[#f9ebe7] text-[#211a18] border border-[#dac1b8] text-xs sm:text-sm font-medium rounded transition-colors flex items-center gap-1.5 cursor-pointer"
-                  title="เข้าสู่ระบบหรือสมัครสมาชิกสำหรับผู้อ่าน"
-                >
-                  <User className="w-3.5 h-3.5 text-[#914724]" />
-                  <span>เข้าสู่ระบบสมาชิก</span>
-                </button>
-
-                <button
-                  onClick={() => setIsAdminGatewayOpen(true)}
-                  className="px-3.5 py-2.5 bg-[#f9ebe7] hover:bg-[#f3e5e2] text-[#7c563f] border border-[#dac1b8] text-xs font-semibold rounded transition-colors flex items-center gap-1.5 cursor-pointer"
-                  title="เข้าสู่ระบบผู้ดูแลระบบ (Naiin Backoffice & Admin Suite)"
-                >
-                  <Lock className="w-3.5 h-3.5 text-[#914724]" />
-                  <span>เข้าสู่ระบบแอดมิน</span>
-                </button>
-              </div>
 
               {/* Key Trust Signals */}
               <div className="pt-4 grid grid-cols-3 gap-3 border-t border-[#dac1b8]/60 text-xs text-[#54433c]">
@@ -521,18 +564,6 @@ export default function App() {
                 </button>
               )}
             </div>
-
-            {/* Quick Upload Button */}
-            <button
-              type="button"
-              onClick={handleOpenAddGlobalBook}
-              className="py-2 px-3 bg-[#914724] hover:bg-[#793a1c] text-white text-xs font-semibold rounded transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap cursor-pointer shrink-0"
-              title="อัปโหลดหรือเพิ่มหนังสือเล่มใหม่สู่เว็บไซต์"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">+ อัปโหลดหนังสือใหม่</span>
-              <span className="sm:hidden">+ เพิ่มเล่ม</span>
-            </button>
           </div>
         </div>
 
@@ -726,9 +757,12 @@ export default function App() {
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
         items={cartItems}
+        memberUser={memberUser}
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
+        onCheckoutSuccess={handleCheckoutSuccess}
+        onOpenMemberAuth={() => setIsMemberAuthOpen(true)}
       />
 
       {/* 5. Rent / Borrow Tracker Modal ("รายการเช่า/ยืมหนังสือ") */}
@@ -745,13 +779,17 @@ export default function App() {
         onClose={() => setIsGuideModalOpen(false)}
       />
 
-      {/* 7. User Account Modal ("กช") */}
+      {/* 7. User Account Modal ("กช" or Guest Reader) */}
       <UserAccountModal
         isOpen={isUserModalOpen}
         onClose={() => setIsUserModalOpen(false)}
         activeBorrowedCount={borrowedBooks.filter((b) => b.status === 'active').length}
         memberUser={memberUser}
         onLogoutMember={handleMemberLogout}
+        onOpenMemberAuth={() => {
+          setIsUserModalOpen(false);
+          setIsMemberAuthOpen(true);
+        }}
       />
 
       {/* 8. Global Book Form Modal (Upload & Edit) */}

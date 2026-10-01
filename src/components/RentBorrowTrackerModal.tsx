@@ -55,6 +55,17 @@ export const RentBorrowTrackerModal: React.FC<RentBorrowTrackerModalProps> = ({
 
         {/* Content */}
         <div className="p-5 sm:p-6 space-y-4">
+          {/* No login required tracker notice */}
+          <div className="p-3 bg-[#fff1ed] border border-[#dac1b8] rounded text-xs text-[#793a1c] flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-[#914724] shrink-0" />
+              <span>ติดตามและส่งคืนหนังสือได้ทันทีโดยไม่ต้องเข้าสู่ระบบ</span>
+            </div>
+            <span className="text-[11px] font-mono bg-white px-2 py-0.5 rounded border border-[#dac1b8] text-[#54433c]">
+              {borrowedBooks.filter(b => b.status === 'active').length} เล่มที่กำลังยืม
+            </span>
+          </div>
+
           {returnSuccessMsg && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
